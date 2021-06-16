@@ -156,9 +156,9 @@ discharge_train_snippets = discharge_train_snippets.sample(frac=1, random_state=
 #check if balanced
 discharge_train_snippets.Label.value_counts()
 
-discharge_train_snippets.to_csv('./data/discharge/train.csv')
-discharge_val.to_csv('./data/discharge/val.csv')
-discharge_test.to_csv('./data/discharge/test.csv')
+discharge_train_snippets.to_csv('./data/original/discharge/train.csv')
+discharge_val.to_csv('./data/original/discharge/val.csv')
+discharge_test.to_csv('./data/original/discharge/test.csv')
 
 ### for Early notes experiment: we only need to find training set for 3 days, then we can test 
 ### both 3 days and 2 days. Since we split the data on patient level and experiments share admissions
@@ -173,10 +173,10 @@ not_readmit_ID_more = df.sample(n=500, random_state=1)
 early_train_snippets = pd.concat([df_less_3[df_less_3.ID.isin(not_readmit_ID_more)], early_train])
 #shuffle
 early_train_snippets = early_train_snippets.sample(frac=1, random_state=1).reset_index(drop=True)
-early_train_snippets.to_csv('./data/3days/train.csv')
+early_train_snippets.to_csv('./data/original/3days/train.csv')
 
 early_val = df_less_3[df_less_3.ID.isin(val_id_label.id)]
-early_val.to_csv('./data/3days/val.csv')
+early_val.to_csv('./data/original/3days/val.csv')
 
 # we want to test on admissions that are not discharged already. So for less than 3 days of notes experiment,
 # we filter out admissions discharged within 3 days
@@ -184,7 +184,7 @@ actionable_ID_3days = df_adm[df_adm['DURATION'] >= 3].HADM_ID
 test_actionable_id_label = test_id_label[test_id_label.id.isin(actionable_ID_3days)]
 early_test = df_less_3[df_less_3.ID.isin(test_actionable_id_label.id)]
 
-early_test.to_csv('./data/3days/test.csv')
+early_test.to_csv('./data/original/3days/test.csv')
 
 #for 2 days notes, we only obtain test set. Since the model parameters are tuned on the val set of 3 days
 
@@ -194,5 +194,5 @@ test_actionable_id_label_2days = test_id_label[test_id_label.id.isin(actionable_
 
 early_test_2days = df_less_2[df_less_2.ID.isin(test_actionable_id_label_2days.id)]
 
-early_test_2days.to_csv('./data/2days/test.csv')
+early_test_2days.to_csv('./data/original/2days/test.csv')
 
