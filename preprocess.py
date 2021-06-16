@@ -33,7 +33,7 @@ df_adm['DURATION']  = (df_adm['DISCHTIME']-df_adm['ADMITTIME']).dt.total_seconds
 ##THIS IS NEW, BRINGS ICD9 CODES, CCS CODES AND MEDICATION
 
 def map_ICD9_to_CCS(pandasDataFrame):
-    #icd9TOCCS_Map = pickle.load(open('./icd9_to_css_dictionary','rb'))
+    #icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dictionary','rb'))
     icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dict.pkl','rb'))
     mappedCCSList = []
     set_of_used_codes = set()
@@ -270,13 +270,13 @@ discharge_train_snippets.Label.value_counts()
 
 print("BEGINNING SAVING TO CSV")
 
-discharge_train_snippets.to_csv('./data/discharge/train.csv',
+discharge_train_snippets.to_csv('./data/extended/discharge/train.csv',
                                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
-discharge_val.to_csv('./data/discharge/val.csv',
+discharge_val.to_csv('./data/extended/discharge/val.csv',
                      columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
-discharge_test.to_csv('./data/discharge/test.csv',
+discharge_test.to_csv('./data/extended/discharge/test.csv',
                       columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
@@ -293,12 +293,12 @@ not_readmit_ID_more = df.sample(n=500, random_state=1)
 early_train_snippets = pd.concat([df_less_3[df_less_3.HADM_ID.isin(not_readmit_ID_more)], early_train])
 #shuffle
 early_train_snippets = early_train_snippets.sample(frac=1, random_state=1).reset_index(drop=True)
-early_train_snippets.to_csv('./data/3days/train.csv',
+early_train_snippets.to_csv('./data/extended/3days/train.csv',
                             columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
 early_val = df_less_3[df_less_3.HADM_ID.isin(val_id_label.id)]
-early_val.to_csv('./data/3days/val.csv',
+early_val.to_csv('./data/extended/3days/val.csv',
                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
@@ -308,7 +308,7 @@ actionable_ID_3days = df_adm[df_adm['DURATION'] >= 3].HADM_ID
 test_actionable_id_label = test_id_label[test_id_label.id.isin(actionable_ID_3days)]
 early_test = df_less_3[df_less_3.HADM_ID.isin(test_actionable_id_label.id)]
 
-early_test.to_csv('./data/3days/test.csv',
+early_test.to_csv('./data/extended/3days/test.csv',
                   columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
@@ -320,6 +320,6 @@ test_actionable_id_label_2days = test_id_label[test_id_label.id.isin(actionable_
 
 early_test_2days = df_less_2[df_less_2.HADM_ID.isin(test_actionable_id_label_2days.id)]
 
-early_test_2days.to_csv('./data/2days/test.csv',
+early_test_2days.to_csv('./data/extended/2days/test.csv',
                         columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
