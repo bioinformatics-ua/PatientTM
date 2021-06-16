@@ -5,6 +5,9 @@ __pycache__/
 
 
 data/
+model/discharge_readmission/pytorch_model.bin
+model/early_readmission/pytorch_model.bin
+model/pretraining/pytorch_model.bin
 
 # C extensions
 *.so
