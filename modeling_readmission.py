@@ -35,7 +35,7 @@ from file_utils import cached_path
 
 print('in the modeling class')
 
-logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
+logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
@@ -322,7 +322,7 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])    
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
     def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True):
         all_encoder_layers = []
@@ -504,6 +504,21 @@ class PreTrainedBertModel(nn.Module):
         model = cls(config, *inputs, **kwargs)
         weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
         state_dict = torch.load(weights_path, map_location = 'cpu')
+
+        old_keys = []
+        new_keys = []
+        for key in state_dict.keys():
+            new_key = None
+            if 'LayerNorm' in key and "weight" in key:
+                new_key = key.replace('weight', 'gamma')
+            if 'LayerNorm' in key and "bias" in key:
+                new_key = key.replace('bias', 'beta')
+            if new_key:
+                old_keys.append(key)
+                new_keys.append(new_key)
+
+        for old_key, new_key in zip(old_keys, new_keys):
+            state_dict[new_key] = state_dict.pop(old_key)
 
         missing_keys = []
         unexpected_keys = []
@@ -865,16 +880,18 @@ class BertForSequenceClassification(PreTrainedBertModel):
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
         _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-        
+
         pooled_output2 = self.dropout(pooled_output)
         logits = self.classifier(pooled_output2)
-        
+
         if labels is not None:
             loss_fct = BCELoss()
             m = nn.Sigmoid()
-            n = torch.squeeze(m(logits))
+            #n = torch.squeeze(m(logits))
             #loss = loss_fct(n, labels.float())
-            loss = loss_fct(n.reshape(-1,1), labels.float().reshape(-1,1))
+            #loss = loss_fct(n.reshape(-1,1), labels.float().reshape(-1,1))
+            n = torch.squeeze(m(logits), dim=-1)
+            loss = loss_fct(n, labels.float())
             return loss, logits
         else:
             return logits
@@ -968,4 +985,3 @@ class BertForQuestionAnswering(PreTrainedBertModel):
             return total_loss
         else:
             return start_logits, end_logits
-
