@@ -58,22 +58,27 @@ logger = logging.getLogger(__name__)
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
-    def __init__(self, guid, text_a, text_b=None, label=None):
+    def __init__(self, guid, features, text_b=None):
         """Constructs a InputExample.
 
         Args:
             guid: Unique id for the example.
-            text_a: string. The untokenized text of the first sequence. For single
-            sequence tasks, only this sequence must be specified.
+            features: dictionary containing the following features: ADMITTIME,DURATION,DIAG_ICD9,DIAG_CCS,PROC_ICD9,PROC_CCS,NDC,Label,TEXT.
+            TEXT contains the untokenized text of the first sequence. For single sequence tasks, only this sequence must be specified.
             text_b: (Optional) string. The untokenized text of the second sequence.
             Only must be specified for sequence pair tasks.
-            label: (Optional) string. The label of the example. This should be
-            specified for train and dev examples, but not for test examples.
         """
         self.guid = guid
-        self.text_a = text_a
+        self.text_a = features["text_a"]
+        self.admittime = features["admittime"]
+        self.duration = features["duration"]
+        self.diag_icd9 = features["diag_icd9"]
+        self.diag_ccs = features["diag_ccs"]
+        self.proc_icd9 = features["proc_icd9"]
+        self.proc_ccs = features["proc_ccs"]
+        self.ndc = features["ndc"]
+        self.label = features["label"]
         self.text_b = text_b
-        self.label = label
 
 
 class InputFeatures(object):
@@ -115,7 +120,7 @@ class DataProcessor(object):
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
-        lines=zip(file.ID,file.TEXT,file.Label)
+        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DURATION,file.DIAG_ICD9,file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.Label,file.TEXT)
         return lines
 
 class readmissionProcessor(DataProcessor):
@@ -140,10 +145,18 @@ class readmissionProcessor(DataProcessor):
         examples = []
         for (i, line) in enumerate(lines):
             guid = "%s-%s" % (set_type, i)
-            text_a = line[1]
-            label = str(int(line[2])) 
+            features = dict()
+            features["admittime"] = line[2]
+            features["duration"] = int(line[3])
+            features["diag_icd9"] = line[4]
+            features["diag_ccs"] = line[5]
+            features["proc_icd9"] = line[6]
+            features["proc_ccs"] = line[7]
+            features["ndc"] = line[8]
+            features["label"] = str(int(line[9]))
+            features["text_a"] = line[10]
             examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+                InputExample(guid=guid, features=features, text_b=None))
         return examples
     
 
