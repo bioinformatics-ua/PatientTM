@@ -513,7 +513,7 @@ def main():
 
     # Prepare model
     model = BertForSequenceClassification.from_pretrained(args.bert_model, 1)
-    if args.fp16::
+    if args.fp16:
         model.half()
     model.to(device)
     if args.local_rank != -1:
