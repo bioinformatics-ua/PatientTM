@@ -6,13 +6,17 @@ import sys
 import matplotlib.pyplot as plt
 import json
 
+filePrefixMapping = {"D":"1", "DE":"2", "DV":"3", "P":"4"}
+
+
 def featureToIdx(features):
     feature2idx = {}
     for i, entry in enumerate(features):
         if isinstance(entry, str):
-            entry = entry.strip()
+            entry = int(entry.strip())
         feature2idx[entry] = i
     return feature2idx
+
 
 def writeToJSON(content, filepath):
     if os.path.isfile(filepath):
@@ -22,6 +26,7 @@ def writeToJSON(content, filepath):
         print("Added content to previously existing file at {}!!".format(filepath))
     with open(filepath, 'w') as file:
         json.dump(content, file)
+
 
 def countCodesPerType(Icd9CcsMap):
     diagDict = dict()
@@ -41,6 +46,71 @@ def countCodesPerType(Icd9CcsMap):
             intersectedCodes+=1
     print("Number of CCS code intersections in map: {}.".format(intersectedCodes))
     print("Number of distinct CCS codes: {}.".format(len(set(diagDict.values()).union(set(procDict.values())))))
+
+
+## SINCE WE DECIDED TO USE ALL CODES IN THE NETWORK ARCHITECTURE, THIS DISREGARDS THE SEPARATION OF USED CODES
+def map_ICD9_to_CCS(pandasDataFrame):
+    icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dict.pkl','rb'))
+    adjustedMap = {}
+    for key, value in icd9TOCCS_Map.items():
+        if key.startswith("DE"):   adjustedMap[key.replace('DE', filePrefixMapping["DE"])] = value
+        elif key.startswith("DV"): adjustedMap[key.replace('DV', filePrefixMapping["DV"])] = value
+        elif key.startswith("D"):  adjustedMap[key.replace('D',  filePrefixMapping["D"])]  = value
+        elif key.startswith("P"):  adjustedMap[key.replace('P', filePrefixMapping["P"])]   = value
+
+    mappedCCSList = []
+    unmapped=0
+    mapped=0
+    for (hadm_id, ICD9s_List) in pandasDataFrame.values:
+        tempCodeList = []
+        for ICD9 in ICD9s_List:
+            while (len(ICD9) < 6): ICD9 += ' '  #pad right white spaces because the CCS mapping uses this pattern
+            try:
+                CCS_code = adjustedMap[ICD9]
+                tempCodeList.append(CCS_code)
+                mapped+=1
+            except KeyError:
+                tempCodeList.append("-1    ") #Used for NaN entries
+                unmapped+=1
+        tempCodeList = list(map(lambda x: x.replace("      ","-1    ") if x == "      " else x, tempCodeList))
+        mappedCCSList.append(tempCodeList)
+
+    if not os.path.isfile("./data/extended/Icd9ToIdx.json"):
+        icd9ToIdx = featureToIdx(set(adjustedMap.keys()))
+        writeToJSON(icd9ToIdx, "./data/extended/Icd9ToIdx.json")
+
+    ccsSet = set(adjustedMap.values())
+    ccsSet.add("-1    ") #Adjusting the set to convert "     " to "-1    " which can be converted to integer type (" " cannot be converted to integer)
+    ccsSet.remove("      ")
+    if not os.path.isfile("./data/extended/CCSToIdx.json"):
+        ccsToIdx = featureToIdx(ccsSet)
+        writeToJSON(ccsToIdx, "./data/extended/CCSToIdx.json")
+
+    print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(set(adjustedMap.keys()))))
+    print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
+    print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
+    return mappedCCSList
+
+
+def get_unique_ordered_medication(pandasDataFrame):
+    set_of_used_codes = set()
+    if "NDC" in pandasDataFrame.columns.values:
+        column = "NDC"
+    elif "DRUG" in pandasDataFrame.columns.values:
+        column = "DRUG"
+    for index in pandasDataFrame.index:
+        used_medications = set()
+        #unique_medication = [x for x in pandasDataFrame.loc[index, column] if x not in used_medications and (used_medications.add(x) or True)]
+        unique_medication = []
+        for value in pandasDataFrame.loc[index, column]:
+            if value not in used_medications and (used_medications.add(value) or True):
+                if pd.isna(value):
+                    value = -1 # Swapping NaNs to a default numerical number that is not used elsewhere
+                unique_medication.append(int(value))
+        pandasDataFrame.at[index, column] = unique_medication
+    return pandasDataFrame
+
+
 
 df_adm = pd.read_csv('/backup/mimiciii/ADMISSIONS.csv.gz', compression="gzip")
 df_adm.ADMITTIME = pd.to_datetime(df_adm.ADMITTIME, format = '%Y-%m-%d %H:%M:%S', errors = 'coerce')
@@ -67,51 +137,18 @@ df_adm = df_adm[df_adm['ADMISSION_TYPE']!='NEWBORN']
 df_adm = df_adm[df_adm.DEATHTIME.isnull()]
 df_adm['DURATION']  = (df_adm['DISCHTIME']-df_adm['ADMITTIME']).dt.total_seconds()/(24*60*60)
 
-##THIS IS NEW, BRINGS ICD9 CODES, CCS CODES AND MEDICATION
-
-def map_ICD9_to_CCS(pandasDataFrame, filePrefix):
-    #icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dictionary','rb'))
-    icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dict.pkl','rb'))
-    # countCodesPerType(icd9TOCCS_Map)
-    mappedCCSList = []
-    set_of_used_codes = set()
-    unmapped=0
-    for (hadm_id, ICD9s_List) in pandasDataFrame.values:
-        tempCodeList = []
-        for ICD9 in ICD9s_List:
-            while (len(ICD9) < 6): ICD9 += ' '  #pad right white spaces because the CCS mapping uses this pattern
-            try:
-                CCS_code = icd9TOCCS_Map[ICD9]
-                tempCodeList.append(CCS_code)
-                set_of_used_codes.add(ICD9)
-            except KeyError:
-                tempCodeList.append("-1    ") #Default value used for NaN entries
-                #print(str(sys.exc_info()[0]) + '  ' + str(ICD9) + ". ICD9 code not found, please verify your ICD9 to CCS mapping before proceeding.")
-                unmapped+=1
-        mappedCCSList.append(tempCodeList)
-
-    icd9ToIdx = featureToIdx(set_of_used_codes)
-    writeToJSON(icd9ToIdx, "./data/extended/"+filePrefix+"Icd9ToIdx.json")
-
-    icd9TOCCS_set = set(icd9TOCCS_Map.values())
-    icd9TOCCS_set.update({"-1    "})
-    ccsToIdx = featureToIdx(icd9TOCCS_set)
-    writeToJSON(ccsToIdx, "./data/extended/"+filePrefix+"CCSToIdx.json")
-
-    print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(set(icd9TOCCS_Map.keys()))))
-    print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(icd9TOCCS_set)))
-    print('-Total number of ICD9 codes actually used: {}'.format(len(set_of_used_codes)))
-    print("Total of unmapped codes {}".format(unmapped))
-    return mappedCCSList
-
 
 df_diagnoses = pd.read_csv('/backup/mimiciii/DIAGNOSES_ICD.csv.gz', compression="gzip")
 df_diagnoses = df_diagnoses.sort_values(['HADM_ID','SEQ_NUM'], ascending=True)
 df_diagnoses = df_diagnoses.reset_index(drop = True)
-df_diagnoses.loc[:, 'ICD9_CODE'] = 'D' + df_diagnoses['ICD9_CODE'].astype(str)
+
+#df_diagnoses.loc[:, 'ICD9_CODE'] = 'D' + df_diagnoses['ICD9_CODE'].astype(str) ##THIS PREVIOUS ENCODING WAS REMOVED AND CHANGED INTO AN INTEGER MAPPING, AS INT WILL TAKE HALF THE MEMORY SPACE
+df_diagnoses.ICD9_CODE = filePrefixMapping["D"] + df_diagnoses.ICD9_CODE.astype(str)
+df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1E', filePrefixMapping["DE"])
+df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1V', filePrefixMapping["DV"])
 df_diag_listing = df_diagnoses.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_diag_listing = df_diag_listing.reset_index()
-diagnosesCCS = map_ICD9_to_CCS(df_diag_listing, "Diag")
+diagnosesCCS = map_ICD9_to_CCS(df_diag_listing)
 df_diag_listing['DIAG_CCS'] = diagnosesCCS
 
 df_adm = pd.merge(df_adm,
@@ -124,10 +161,11 @@ df_adm = df_adm.rename(columns={'ICD9_CODE': 'DIAG_ICD9'})
 df_procedures = pd.read_csv('/backup/mimiciii/PROCEDURES_ICD.csv.gz', compression="gzip")
 df_procedures = df_procedures.sort_values(['HADM_ID','SEQ_NUM'], ascending=True)
 df_procedures = df_procedures.reset_index(drop = True)
-df_procedures.loc[:, 'ICD9_CODE'] = 'P' + df_procedures['ICD9_CODE'].astype(str)
+#df_procedures.loc[:, 'ICD9_CODE'] = 'P' + df_procedures['ICD9_CODE'].astype(str) ## SAME AS BEFORE, CHANGED TO INTEGER MAPPING
+df_procedures.ICD9_CODE = filePrefixMapping["P"] + df_procedures.ICD9_CODE.astype(str)
 df_proc_listing = df_procedures.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_proc_listing = df_proc_listing.reset_index()
-proceduresCCS = map_ICD9_to_CCS(df_proc_listing, "Proc")
+proceduresCCS = map_ICD9_to_CCS(df_proc_listing)
 df_proc_listing['PROC_CCS'] = proceduresCCS
 
 df_adm = pd.merge(df_adm,
@@ -138,29 +176,29 @@ df_adm = pd.merge(df_adm,
 df_adm = df_adm.rename(columns={'ICD9_CODE': 'PROC_ICD9'})
 
 
-def get_unique_ordered_medication(pandasDataFrame):
-    set_of_used_codes = set()
-    if "NDC" in pandasDataFrame.columns.values:
-        column = "NDC"
-    elif "DRUG" in pandasDataFrame.columns.values:
-        column = "DRUG"
-    for index in pandasDataFrame.index:
-        used_medications = set()
-        #unique_medication = [x for x in pandasDataFrame.loc[index, column] if x not in used_medications and (used_medications.add(x) or True)]
-        unique_medication = []
-        for value in pandasDataFrame.loc[index, column]:
-            if value not in used_medications and (used_medications.add(value) or True):
-                if pd.isna(value):
-                    value = -1.0 # Swapping NaNs to a default numerical number that is not used elsewhere
-                unique_medication.append(value)
-        pandasDataFrame.at[index, column] = unique_medication
-        #set_of_used_codes = set_of_used_codes.union(set(unique_medication))
-        set_of_used_codes.update(set(unique_medication))
-    print(set(set_of_used_codes))
-    print("Number of unique NDC codes in dataset: {}".format(str(len(set_of_used_codes))))
-    ndcToIdx = featureToIdx(set_of_used_codes)
-    writeToJSON(ndcToIdx, "./data/extended/ndcToIdx.json")
-    return pandasDataFrame
+# def get_unique_ordered_medication(pandasDataFrame):
+#     set_of_used_codes = set()
+#     if "NDC" in pandasDataFrame.columns.values:
+#         column = "NDC"
+#     elif "DRUG" in pandasDataFrame.columns.values:
+#         column = "DRUG"
+#     for index in pandasDataFrame.index:
+#         used_medications = set()
+#         #unique_medication = [x for x in pandasDataFrame.loc[index, column] if x not in used_medications and (used_medications.add(x) or True)]
+#         unique_medication = []
+#         for value in pandasDataFrame.loc[index, column]:
+#             if value not in used_medications and (used_medications.add(value) or True):
+#                 if pd.isna(value):
+#                     value = -1.0 # Swapping NaNs to a default numerical number that is not used elsewhere
+#                 unique_medication.append(value)
+#         pandasDataFrame.at[index, column] = unique_medication
+#         #set_of_used_codes = set_of_used_codes.union(set(unique_medication))
+#         set_of_used_codes.update(set(unique_medication))
+#     # print(set(set_of_used_codes))
+#     # print("Number of unique NDC codes in dataset: {}".format(str(len(set_of_used_codes))))
+#     ndcToIdx = featureToIdx(set_of_used_codes)
+#     writeToJSON(ndcToIdx, "./data/extended/ndcToIdx.json")
+#     return pandasDataFrame
 
 
 df_medication = pd.read_csv('/backup/mimiciii/PRESCRIPTIONS.csv.gz', compression="gzip")
