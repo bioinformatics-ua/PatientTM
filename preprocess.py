@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import os
+import csv
 import sys
 import matplotlib.pyplot as plt
 import json
@@ -93,7 +94,17 @@ def map_ICD9_to_CCS(pandasDataFrame):
 
 
 def get_unique_ordered_medication(pandasDataFrame):
-    set_of_used_codes = set()
+    RxNormNdcs = set()
+    with open("./data/extended/ndcsFromUMLS.csv", "r") as file:
+        lines = file.readlines()
+        for line in lines:
+            ndc = line.split('|')
+            ndc = int(ndc[2].strip("\n"))
+            RxNormNdcs.add(ndc)
+        print(len(RxNormNdcs))
+
+    mapped=0
+    unmapped=0
     if "NDC" in pandasDataFrame.columns.values:
         column = "NDC"
     elif "DRUG" in pandasDataFrame.columns.values:
@@ -104,12 +115,20 @@ def get_unique_ordered_medication(pandasDataFrame):
         unique_medication = []
         for value in pandasDataFrame.loc[index, column]:
             if value not in used_medications and (used_medications.add(value) or True):
-                if pd.isna(value):
+                if pd.isna(value) or value==0.0:
                     value = -1 # Swapping NaNs to a default numerical number that is not used elsewhere
                 unique_medication.append(int(value))
-        pandasDataFrame.at[index, column] = unique_medication
-    return pandasDataFrame
 
+            if (int(value) is not -1) and (int(value) in RxNormNdcs):
+                mapped+=1
+            else:
+                unmapped+=1
+        pandasDataFrame.at[index, column] = unique_medication
+    RxNormNdcs.add(-1)
+    ndcsToIdx = featureToIdx(RxNormNdcs)
+    writeToJSON(ndcsToIdx, "./data/extended/NDCToIdx.json")
+    # print("mapped: {}, unmapped: {}".format(mapped, unmapped))
+    return pandasDataFrame
 
 
 df_adm = pd.read_csv('/backup/mimiciii/ADMISSIONS.csv.gz', compression="gzip")
@@ -176,35 +195,11 @@ df_adm = pd.merge(df_adm,
 df_adm = df_adm.rename(columns={'ICD9_CODE': 'PROC_ICD9'})
 
 
-# def get_unique_ordered_medication(pandasDataFrame):
-#     set_of_used_codes = set()
-#     if "NDC" in pandasDataFrame.columns.values:
-#         column = "NDC"
-#     elif "DRUG" in pandasDataFrame.columns.values:
-#         column = "DRUG"
-#     for index in pandasDataFrame.index:
-#         used_medications = set()
-#         #unique_medication = [x for x in pandasDataFrame.loc[index, column] if x not in used_medications and (used_medications.add(x) or True)]
-#         unique_medication = []
-#         for value in pandasDataFrame.loc[index, column]:
-#             if value not in used_medications and (used_medications.add(value) or True):
-#                 if pd.isna(value):
-#                     value = -1.0 # Swapping NaNs to a default numerical number that is not used elsewhere
-#                 unique_medication.append(value)
-#         pandasDataFrame.at[index, column] = unique_medication
-#         #set_of_used_codes = set_of_used_codes.union(set(unique_medication))
-#         set_of_used_codes.update(set(unique_medication))
-#     # print(set(set_of_used_codes))
-#     # print("Number of unique NDC codes in dataset: {}".format(str(len(set_of_used_codes))))
-#     ndcToIdx = featureToIdx(set_of_used_codes)
-#     writeToJSON(ndcToIdx, "./data/extended/ndcToIdx.json")
-#     return pandasDataFrame
-
-
 df_medication = pd.read_csv('/backup/mimiciii/PRESCRIPTIONS.csv.gz', compression="gzip")
 df_medication = df_medication.sort_values(['HADM_ID','STARTDATE'], ascending=True)
 df_medication = df_medication.reset_index(drop = True)
-#df_med_listing = df_medication.groupby('HADM_ID')['DRUG'].apply(list)
+# df_med_listing1 = df_medication.groupby('HADM_ID')['DRUG'].apply(list)
+# df_med_listing1 = df_med_listing1.reset_index()
 df_med_listing = df_medication.groupby('HADM_ID')['NDC'].apply(list)
 df_med_listing = df_med_listing.reset_index()
 df_med_listing = get_unique_ordered_medication(df_med_listing) #now the list of medication only contains unique medications, not a long list of many repeated meds
