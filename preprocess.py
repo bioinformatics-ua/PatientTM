@@ -76,8 +76,12 @@ def map_ICD9_to_CCS(pandasDataFrame):
         tempCodeList = list(map(lambda x: x.replace("      ","-1    ") if x == "      " else x, tempCodeList))
         mappedCCSList.append(tempCodeList)
 
+    # This "-1" is necessary because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
+    # These empty entries will be processed as "-1" entries later on, before being fed to the model as input
+    icd9Set = set(adjustedMap.keys())
+    icd9Set.add ("-1")
     if not os.path.isfile("./data/extended/Icd9ToIdx.json"):
-        icd9ToIdx = featureToIdx(set(adjustedMap.keys()))
+        icd9ToIdx = featureToIdx(icd9Set)
         writeToJSON(icd9ToIdx, "./data/extended/Icd9ToIdx.json")
 
     ccsSet = set(adjustedMap.values())
@@ -87,7 +91,7 @@ def map_ICD9_to_CCS(pandasDataFrame):
         ccsToIdx = featureToIdx(ccsSet)
         writeToJSON(ccsToIdx, "./data/extended/CCSToIdx.json")
 
-    print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(set(adjustedMap.keys()))))
+    print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(icd9Set)))
     print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
     print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
     return mappedCCSList
@@ -161,7 +165,8 @@ df_diagnoses = pd.read_csv('/backup/mimiciii/DIAGNOSES_ICD.csv.gz', compression=
 df_diagnoses = df_diagnoses.sort_values(['HADM_ID','SEQ_NUM'], ascending=True)
 df_diagnoses = df_diagnoses.reset_index(drop = True)
 
-#df_diagnoses.loc[:, 'ICD9_CODE'] = 'D' + df_diagnoses['ICD9_CODE'].astype(str) ##THIS PREVIOUS ENCODING WAS REMOVED AND CHANGED INTO AN INTEGER MAPPING, AS INT WILL TAKE HALF THE MEMORY SPACE
+#df_diagnoses.loc[:, 'ICD9_CODE'] = 'D' + df_diagnoses['ICD9_CODE'].astype(str)
+###THE PREVIOUS ENCODING WAS REMOVED AND CHANGED INTO AN INTEGER MAPPING, AS USED BELOW, AS INT WILL TAKE HALF THE MEMORY SPACE
 df_diagnoses.ICD9_CODE = filePrefixMapping["D"] + df_diagnoses.ICD9_CODE.astype(str)
 df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1E', filePrefixMapping["DE"])
 df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1V', filePrefixMapping["DV"])
