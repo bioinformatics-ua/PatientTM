@@ -49,9 +49,59 @@ def countCodesPerType(Icd9CcsMap):
     print("Number of distinct CCS codes: {}.".format(len(set(diagDict.values()).union(set(procDict.values())))))
 
 
+# ## SINCE WE DECIDED TO USE ALL CODES IN THE NETWORK ARCHITECTURE, THIS DISREGARDS THE SEPARATION OF USED CODES
+# def map_ICD9_to_CCS(pandasDataFrame):
+#     icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dict.pkl','rb'))
+#     adjustedMap = {}
+#     for key, value in icd9TOCCS_Map.items():
+#         if key.startswith("DE"):   adjustedMap[key.replace('DE', filePrefixMapping["DE"])] = value
+#         elif key.startswith("DV"): adjustedMap[key.replace('DV', filePrefixMapping["DV"])] = value
+#         elif key.startswith("D"):  adjustedMap[key.replace('D',  filePrefixMapping["D"])]  = value
+#         elif key.startswith("P"):  adjustedMap[key.replace('P', filePrefixMapping["P"])]   = value
+#
+#     mappedCCSList = []
+#     unmapped=0
+#     mapped=0
+#     icd9Set = set(adjustedMap.keys())
+#     for (hadm_id, ICD9s_List) in pandasDataFrame.values:
+#         tempCodeList = []
+#         for ICD9 in ICD9s_List:
+#             icd9Set.add(ICD9)
+#             while (len(ICD9) < 6): ICD9 += ' '  #pad right white spaces because the CCS mapping uses this pattern
+#             try:
+#                 CCS_code = adjustedMap[ICD9]
+#                 tempCodeList.append(CCS_code)
+#                 mapped+=1
+#             except KeyError:
+#                 tempCodeList.append("-1    ") #Used for NaN entries
+#                 unmapped+=1
+#         tempCodeList = list(map(lambda x: x.replace("      ","-1    ") if x == "      " else x, tempCodeList))
+#         mappedCCSList.append(tempCodeList)
+#
+#     # This "-1" is necessary because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
+#     # These empty entries will be processed as "-1" entries later on, before being fed to the model as input
+#     icd9Set.add ("-1")
+#     if not os.path.isfile("./data/extended/Icd9ToIdx.json"):
+#         icd9ToIdx = featureToIdx(icd9Set)
+#         writeToJSON(icd9ToIdx, "./data/extended/Icd9ToIdx.json")
+#
+#     ccsSet = set(adjustedMap.values())
+#     ccsSet.add("-1    ") #Adjusting the set to convert "     " to "-1    " which can be converted to integer type (" " cannot be converted to integer)
+#     ccsSet.remove("      ")
+#     if not os.path.isfile("./data/extended/CCSToIdx.json"):
+#         ccsToIdx = featureToIdx(ccsSet)
+#         writeToJSON(ccsToIdx, "./data/extended/CCSToIdx.json")
+#
+#     print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(icd9Set)))
+#     print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
+#     print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
+#     return mappedCCSList
+
 ## SINCE WE DECIDED TO USE ALL CODES IN THE NETWORK ARCHITECTURE, THIS DISREGARDS THE SEPARATION OF USED CODES
-def map_ICD9_to_CCS(pandasDataFrame):
+def map_ICD9_to_CCS(pandasDataFrame, baseCodeSet=None, writeIcdIdx=False):
     icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dict.pkl','rb'))
+    if baseCodeSet is None:
+        baseCodeSet = set()
     adjustedMap = {}
     for key, value in icd9TOCCS_Map.items():
         if key.startswith("DE"):   adjustedMap[key.replace('DE', filePrefixMapping["DE"])] = value
@@ -65,6 +115,7 @@ def map_ICD9_to_CCS(pandasDataFrame):
     for (hadm_id, ICD9s_List) in pandasDataFrame.values:
         tempCodeList = []
         for ICD9 in ICD9s_List:
+            baseCodeSet.add(ICD9)
             while (len(ICD9) < 6): ICD9 += ' '  #pad right white spaces because the CCS mapping uses this pattern
             try:
                 CCS_code = adjustedMap[ICD9]
@@ -78,10 +129,11 @@ def map_ICD9_to_CCS(pandasDataFrame):
 
     # This "-1" is necessary because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
     # These empty entries will be processed as "-1" entries later on, before being fed to the model as input
-    icd9Set = set(adjustedMap.keys())
-    icd9Set.add ("-1")
-    if not os.path.isfile("./data/extended/Icd9ToIdx.json"):
-        icd9ToIdx = featureToIdx(icd9Set)
+    icd9Set=set(adjustedMap.keys())
+    icd9Set.add("-1")
+    baseCodeSet.update(icd9Set)
+    if writeIcdIdx:
+        icd9ToIdx = featureToIdx(baseCodeSet)
         writeToJSON(icd9ToIdx, "./data/extended/Icd9ToIdx.json")
 
     ccsSet = set(adjustedMap.values())
@@ -94,7 +146,8 @@ def map_ICD9_to_CCS(pandasDataFrame):
     print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(icd9Set)))
     print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
     print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
-    return mappedCCSList
+    return mappedCCSList, baseCodeSet
+
 
 
 def get_unique_ordered_medication(pandasDataFrame):
@@ -113,13 +166,17 @@ def get_unique_ordered_medication(pandasDataFrame):
         column = "NDC"
     elif "DRUG" in pandasDataFrame.columns.values:
         column = "DRUG"
+    # counter = 0
     for index in pandasDataFrame.index:
         used_medications = set()
         #unique_medication = [x for x in pandasDataFrame.loc[index, column] if x not in used_medications and (used_medications.add(x) or True)]
         unique_medication = []
         for value in pandasDataFrame.loc[index, column]:
             if value not in used_medications and (used_medications.add(value) or True):
-                if pd.isna(value) or value==0.0:
+                if pd.isna(value) or value==0.0 or value not in RxNormNdcs: #Attention, the last clause leads to codes not appearing in the set
+                    # if (not pd.isna(value) and not value==0.0):
+                    #     print(value)
+                    #     counter+=1
                     value = -1 # Swapping NaNs to a default numerical number that is not used elsewhere
                 unique_medication.append(int(value))
 
@@ -132,6 +189,7 @@ def get_unique_ordered_medication(pandasDataFrame):
     ndcsToIdx = featureToIdx(RxNormNdcs)
     writeToJSON(ndcsToIdx, "./data/extended/NDCToIdx.json")
     # print("mapped: {}, unmapped: {}".format(mapped, unmapped))
+    # print(counter)
     return pandasDataFrame
 
 
@@ -162,6 +220,7 @@ df_adm['DURATION']  = (df_adm['DISCHTIME']-df_adm['ADMITTIME']).dt.total_seconds
 
 
 df_diagnoses = pd.read_csv('/backup/mimiciii/DIAGNOSES_ICD.csv.gz', compression="gzip")
+df_diagnoses = df_diagnoses[df_diagnoses.ICD9_CODE.notna()]
 df_diagnoses = df_diagnoses.sort_values(['HADM_ID','SEQ_NUM'], ascending=True)
 df_diagnoses = df_diagnoses.reset_index(drop = True)
 
@@ -172,7 +231,7 @@ df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1E', filePrefixMapp
 df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1V', filePrefixMapping["DV"])
 df_diag_listing = df_diagnoses.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_diag_listing = df_diag_listing.reset_index()
-diagnosesCCS = map_ICD9_to_CCS(df_diag_listing)
+diagnosesCCS, baseIcdCodeSet = map_ICD9_to_CCS(df_diag_listing)
 df_diag_listing['DIAG_CCS'] = diagnosesCCS
 
 df_adm = pd.merge(df_adm,
@@ -189,7 +248,7 @@ df_procedures = df_procedures.reset_index(drop = True)
 df_procedures.ICD9_CODE = filePrefixMapping["P"] + df_procedures.ICD9_CODE.astype(str)
 df_proc_listing = df_procedures.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_proc_listing = df_proc_listing.reset_index()
-proceduresCCS = map_ICD9_to_CCS(df_proc_listing)
+proceduresCCS, _ = map_ICD9_to_CCS(df_proc_listing, baseCodeSet=baseIcdCodeSet, writeIcdIdx=True)
 df_proc_listing['PROC_CCS'] = proceduresCCS
 
 df_adm = pd.merge(df_adm,
