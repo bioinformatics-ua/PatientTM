@@ -61,8 +61,17 @@ def processString(string, charsToRemove):
 
 def convertToIds(feature, idsMappingDict):
     featureIds=[]
+    # for key in idsMappingDict.keys():
+    #     print(key.__class__)
+    # keys = sorted(idsMappingDict.keys())
+    # for key in keys:
+    #     if key.startswith("6410"):
+    #         print(key)
+        # if int(key) > int(641040025):
+        #     print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
     for entry in feature:
-        featureIds.append(idsMappingDict[entry])
+        # print(entry)
+        featureIds.append(idsMappingDict[str(entry)])
     return featureIds
 
 
@@ -116,19 +125,19 @@ class InputFeatures(object):
         self.segment_ids = features["segment_ids"]
         self.label_id = features["label_id"]
 
-        if features["admittime"] is not None:
+        if "admittime" in features.keys():
             self.admittime = features["admittime"]
-        if features["duration"] is not None:
+        if "duration" in features.keys():
             self.duration = features["duration"]
-        if features["diag_icd9"] is not None:
+        if "diag_icd9" in features.keys():
             self.diag_icd9 = features["diag_icd9"]
-        if features["diag_ccs"] is not None:
+        if "diag_ccs" in features.keys():
             self.diag_ccs = features["diag_ccs"]
-        if features["proc_icd9"] is not None:
+        if "proc_icd9" in features.keys():
             self.proc_icd9 = features["proc_icd9"]
-        if features["proc_ccs"] is not None:
+        if "proc_ccs" in features.keys():
             self.proc_ccs = features["proc_ccs"]
-        if features["ndc"] is not None:
+        if "ndc" in features.keys():
             self.ndc = features["ndc"]
 
 
@@ -196,10 +205,16 @@ class readmissionProcessor(DataProcessor):
                 if "duration"  in additionalFeatures: features["duration"] = int(line[3])
                 else: features["duration"] = None
 
-                if "diag_icd9" in additionalFeatures: features["diag_icd9"] = [int(x) for x in processString(line[4],charsToRemove = "[]\',").split(' ')]
+                if "diag_icd9" in additionalFeatures:
+                    features["diag_icd9"] = line[4]
+                    if pd.isna(features["diag_icd9"]): features["diag_icd9"] = [-1]
+                    else: features["diag_icd9"] = [int(x) for x in processString(line[4],charsToRemove = "[]\',").split(' ')]
                 else: features["diag_icd9"] = None
 
-                if "diag_ccs"  in additionalFeatures: features["diag_ccs"] = [int(x) for x in processString(line[5],charsToRemove = "[]\' ").split(',')]
+                if "diag_ccs"  in additionalFeatures:
+                    features["diag_ccs"] = line[5]
+                    if pd.isna(features["diag_ccs"]): features["diag_ccs"] = [-1]
+                    else: features["diag_ccs"] = [int(x) for x in processString(line[5],charsToRemove = "[]\' ").split(',')]
                 else: features["diag_ccs"] = None
 
                 if "proc_icd9" in additionalFeatures:
@@ -228,22 +243,21 @@ class readmissionProcessor(DataProcessor):
         return examples
 
 
-def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, additionalFeatures):
+def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, additionalFeatures, maxLenDict):
     """Loads a data file into a list of `InputBatch`s."""
 
     """Load the mapping dictionaries for additional features, to be used later to convert to ids"""
     if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
         with open("./data/extended/Icd9ToIdx.json","r") as file:
             icd9MappingDict = json.load(file)
-        # icd9MappingDict = json.loads("./data/extended/Icd9ToIdx.json")
-        print(icd9MappingDict)
-        print(icd9MappingDict.__class__)
-    # with open("./data/extended/Icd9ToIdx.json", "r") as reader:
-    #     text = reader.read()
-    # # return cls.from_dict(json.loads(text))
 
-# "./data/extended/CCSToIdx.json"
-# "./data/extended/NDCToIdx.json"
+    if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
+        with open("./data/extended/CCSToIdx.json","r") as file:
+            ccsMappingDict = json.load(file)
+
+    if "ndc" in additionalFeatures:
+        with open("./data/extended/NDCToIdx.json","r") as file:
+            ndcMappingDict = json.load(file)
 
     label_map = {}
     for (i, label) in enumerate(label_list):
@@ -319,6 +333,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         assert len(segment_ids) == max_seq_length
         #print (example.label)
         label_id = label_map[example.label]
+
         if ex_index < 5:
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
@@ -335,18 +350,40 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         feature["input_mask"]=input_mask
         feature["segment_ids"]=segment_ids
         feature["label_id"]=label_id
+        # if additionalFeatures is not None:
+        #     if "admittime" in additionalFeatures: feature["admittime"] = example.admittime
+        #     if "duration"  in additionalFeatures: feature["duration"] = example.duration
+        #     if "diag_icd9" in additionalFeatures: feature["diag_icd9"] = convertToIds(example.diag_icd9, icd9MappingDict)
+        #     if "diag_ccs"  in additionalFeatures: feature["diag_ccs"] = convertToIds(example.diag_ccs, ccsMappingDict)
+        #     if "proc_icd9" in additionalFeatures: feature["proc_icd9"] = convertToIds(example.proc_icd9, icd9MappingDict)
+        #     if "proc_ccs"  in additionalFeatures: feature["proc_ccs"] = convertToIds(example.proc_ccs, ccsMappingDict)
+        #     if "ndc"       in additionalFeatures: feature["ndc"] = convertToIds(example.ndc, ndcMappingDict)
+
         if additionalFeatures is not None:
             if "admittime" in additionalFeatures: feature["admittime"] = example.admittime
             if "duration"  in additionalFeatures: feature["duration"] = example.duration
-            if "diag_icd9" in additionalFeatures: feature["diag_icd9"] = example.diag_icd9
-            if "diag_ccs"  in additionalFeatures: feature["diag_ccs"] = example.diag_ccs
-            if "proc_icd9" in additionalFeatures: feature["proc_icd9"] = example.proc_icd9
-            if "proc_ccs"  in additionalFeatures: feature["proc_ccs"] = example.proc_ccs
-            if "ndc"       in additionalFeatures: feature["ndc"] = example.ndc
-        #convertToIds(feature, map)
+            if "diag_icd9" in additionalFeatures:
+                feature["diag_icd9"] = convertToIds(example.diag_icd9, icd9MappingDict)
+                while len(feature["diag_icd9"]) < maxLenDict["icd9_ccs_maxlen"]:
+                    feature["diag_icd9"].append(0)
+            if "diag_ccs"  in additionalFeatures:
+                feature["diag_ccs"] = convertToIds(example.diag_ccs, ccsMappingDict)
+                while len(feature["diag_ccs"]) < maxLenDict["icd9_ccs_maxlen"]:
+                    feature["diag_ccs"].append(0)
+            if "proc_icd9" in additionalFeatures:
+                feature["proc_icd9"] = convertToIds(example.proc_icd9, icd9MappingDict)
+                while len(feature["proc_icd9"]) < maxLenDict["icd9_ccs_maxlen"]:
+                    feature["proc_icd9"].append(0)
+            if "proc_ccs"  in additionalFeatures:
+                feature["proc_ccs"] = convertToIds(example.proc_ccs, ccsMappingDict)
+                while len(feature["proc_ccs"]) < maxLenDict["icd9_ccs_maxlen"]:
+                    feature["proc_ccs"].append(0)
+            if "ndc" in additionalFeatures:
+                feature["ndc"] = convertToIds(example.ndc, ndcMappingDict)
+                while len(feature["ndc"]) < maxLenDict["ndc_maxlen"]:
+                    feature["ndc"].append(0)
 
         features.append(InputFeatures(feature))
-
     return features
 
 
@@ -567,12 +604,23 @@ def main():
                         type=str,
                         choices=["admittime", "duration", "diag_icd9", "diag_ccs", "proc_icd9", "proc_ccs", "ndc"],
                         help='Additional features to use as model input. Please select one or more of the following inputs: [admittime, duration, diag_icd9, diag_ccs, proc_icd9, proc_ccs, ndc]')
+    parser.add_argument('--icd9_ccs_maxlength',
+                        type=int,
+                        default=40,
+                        help="max length for icd9 and ccs tensors")
+    parser.add_argument('--ndc_maxlength',
+                        type=int,
+                        default=200,
+                        help="max length for ndc tensors")
+
 
     args = parser.parse_args()
 
     processors = {
         "readmission": readmissionProcessor
     }
+
+    maxLenDict={"icd9_ccs_maxlen": args.icd9_ccs_maxlength, "ndc_maxlen": args.ndc_maxlength}
 
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
@@ -623,8 +671,10 @@ def main():
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
-# THIS LINE HERE
-    model = BertForSequenceClassification.from_pretrained(args.bert_model, 1)
+    model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.additional_features)
+    # print(list(model.named_parameters()))
+# SEE THIS AND CHANGE MODEL NAMED PARAMETERS TO SEE WHAT PARAMETERS ARE APPEARING, WITHOUT THE GIANT TENSORS IN THE OUTPUT
+
     if args.fp16:
         model.half()
     model.to(device)
@@ -661,7 +711,7 @@ def main():
     train_loss_history=[]
     if args.do_train:
         train_features = convert_examples_to_features(
-            train_examples, label_list, args.max_seq_length, tokenizer)
+            train_examples, label_list, args.max_seq_length, tokenizer, args.additional_features, maxLenDict)
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
@@ -670,17 +720,41 @@ def main():
         all_input_mask  = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
         all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
         all_label_ids   = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+        tensors = [all_input_ids, all_input_mask, all_segment_ids, all_label_ids]
 
-        all_admittimes  = torch.tensor([f.admit_time for f in train_features], dtype=torch.long)
-        all_durations   = torch.tensor([f.all_durations for f in train_features], dtype=torch.long)
-        all_diag_icd9   = torch.tensor([f.all_diag_icd9 for f in train_features], dtype=torch.long)
-        all_diag_ccs    = torch.tensor([f.all_diag_ccs for f in train_features], dtype=torch.long)
-        all_proc_icd9   = torch.tensor([f.all_proc_icd9 for f in train_features], dtype=torch.long)
-        all_proc_ccs    = torch.tensor([f.all_proc_ccs for f in train_features], dtype=torch.long)
-        all_ndc         = torch.tensor([f.all_ndc for f in train_features], dtype=torch.long)
+        featurePositionDict = {}
+        positionIdx=0
+        # additionalFeatureOrder = [feature for feature in args.additional_features]
+        # if "admittime" in args.additional_features:
+        #     tensors.append(torch.tensor([f.admittime for f in eval_features], dtype=torch.long))
+        #     featurePositionDict["admittime"] = positionIdx
+        #     positionIdx+=1
+        if "duration"  in args.additional_features:
+            tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.long))
+            featurePositionDict["duration"] = positionIdx
+            positionIdx+=1
+        if "diag_icd9" in args.additional_features:
+            tensors.append(torch.tensor([f.diag_icd9 for f in train_features], dtype=torch.long))
+            featurePositionDict["diag_icd9"] = positionIdx
+            positionIdx+=1
+        if "diag_ccs"  in args.additional_features:
+            tensors.append(torch.tensor([f.diag_ccs for f in train_features], dtype=torch.long))
+            featurePositionDict["diag_ccs"] = positionIdx
+            positionIdx+=1
+        if "proc_icd9" in args.additional_features:
+            tensors.append(torch.tensor([f.proc_icd9 for f in train_features], dtype=torch.long))
+            featurePositionDict["proc_icd9"] = positionIdx
+            positionIdx+=1
+        if "proc_ccs"  in args.additional_features:
+            tensors.append(torch.tensor([f.proc_ccs for f in train_features], dtype=torch.long))
+            featurePositionDict["proc_ccs"] = positionIdx
+            positionIdx+=1
+        if "ndc"       in args.additional_features:
+            tensors.append(torch.tensor([f.ndc for f in train_features], dtype=torch.long))
+            featurePositionDict["ndc"] = positionIdx
+            positionIdx+=1
 
-        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_admittimes, all_durations,
-                                   all_diag_icd9, all_diag_ccs, all_proc_icd9, all_proc_ccs, all_ndc)
+        train_data = TensorDataset(*tensors)
 
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
@@ -693,9 +767,8 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(train_dataloader):
                 batch = tuple(t.to(device) for t in batch)
-                input_ids, input_mask, segment_ids, label_ids, admit_times, durations, diag_icd9, diag_ccs, proc_icd9,\
-                    proc_ccs, ndcs = batch
-                loss, logits = model(input_ids, segment_ids, input_mask, label_ids, admit_times, durations, diag_icd9, diag_ccs, proc_icd9, proc_ccs, ndcs)
+                input_ids, input_mask, segment_ids, label_ids, *extraFeatures = batch
+                loss, logits = model(input_ids, segment_ids, input_mask, label_ids, args.additional_features, extraFeatures, featurePositionDict)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.fp16 and args.loss_scale != 1.0:
@@ -746,10 +819,9 @@ def main():
     
     m = nn.Sigmoid()
     if args.do_eval:
-#THESE LINES BELOW UNTIL "eval_data=TensorDataset"
         eval_examples = processor.get_test_examples(args.data_dir, args.additional_features)
         eval_features = convert_examples_to_features(
-            eval_examples, label_list, args.max_seq_length, tokenizer, args.additional_features)
+            eval_examples, label_list, args.max_seq_length, tokenizer, args.additional_features, maxLenDict)
         logger.info("***** Running evaluation *****")
         logger.info("  Num examples = %d", len(eval_examples))
         logger.info("  Batch size = %d", args.eval_batch_size)
@@ -757,7 +829,42 @@ def main():
         all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
         all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
-        eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+        tensors = [all_input_ids, all_input_mask, all_segment_ids, all_label_ids]
+
+        featurePositionDict = {}
+        positionIdx=0
+        # additionalFeatureOrder = [feature for feature in args.additional_features]
+        # if "admittime" in args.additional_features:
+        #     tensors.append(torch.tensor([f.admittime for f in eval_features], dtype=torch.long))
+        #     featurePositionDict["admittime"] = positionIdx
+        #     positionIdx+=1
+        if "duration"  in args.additional_features:
+            tensors.append(torch.tensor([f.duration for f in eval_features], dtype=torch.long))
+            featurePositionDict["duration"] = positionIdx
+            positionIdx+=1
+        if "diag_icd9" in args.additional_features:
+            tensors.append(torch.tensor([f.diag_icd9 for f in eval_features], dtype=torch.long))
+            featurePositionDict["diag_icd9"] = positionIdx
+            positionIdx+=1
+        if "diag_ccs"  in args.additional_features:
+            tensors.append(torch.tensor([f.diag_ccs for f in eval_features], dtype=torch.long))
+            featurePositionDict["diag_ccs"] = positionIdx
+            positionIdx+=1
+        if "proc_icd9" in args.additional_features:
+            tensors.append(torch.tensor([f.proc_icd9 for f in eval_features], dtype=torch.long))
+            featurePositionDict["proc_icd9"] = positionIdx
+            positionIdx+=1
+        if "proc_ccs"  in args.additional_features:
+            tensors.append(torch.tensor([f.proc_ccs for f in eval_features], dtype=torch.long))
+            featurePositionDict["proc_ccs"] = positionIdx
+            positionIdx+=1
+        if "ndc"       in args.additional_features:
+            tensors.append(torch.tensor([f.ndc for f in eval_features], dtype=torch.long))
+            featurePositionDict["ndc"] = positionIdx
+            positionIdx+=1
+
+        eval_data = TensorDataset(*tensors)
+
         if args.local_rank == -1:
             eval_sampler = SequentialSampler(eval_data)
         else:
@@ -770,15 +877,17 @@ def main():
         pred_labels=[]
         logits_history=[]
 
-#THESE LINES BELOW UNTIL "logits=torch.squeeze"
-        for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader):
+        for input_ids, input_mask, segment_ids, label_ids, *extraFeatures in tqdm(eval_dataloader):
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)
             label_ids = label_ids.to(device)
+            print("LABEL IDS: {}".format(label_ids))
+            extraFeatures = [feature.to(device) for feature in extraFeatures]
+
             with torch.no_grad():
-                tmp_eval_loss, temp_logits = model(input_ids, segment_ids, input_mask, label_ids)
-                logits = model(input_ids,segment_ids,input_mask)
+                tmp_eval_loss, temp_logits = model(input_ids, segment_ids, input_mask, label_ids, args.additional_features, extraFeatures, featurePositionDict)
+                logits = model(input_ids,segment_ids,input_mask,args.additional_features, extraFeatures, featurePositionDict)
             
             logits = torch.squeeze(m(logits)).detach().cpu().numpy()
             label_ids = label_ids.to('cpu').numpy()
