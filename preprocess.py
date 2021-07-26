@@ -10,12 +10,25 @@ import json
 filePrefixMapping = {"D":"1", "DE":"2", "DV":"3", "P":"4"}
 
 
+# def featureToIdx(features):
+#     feature2idx = {}
+#     feature2idx[0] = 0
+#     idx=0
+#     for i, entry in enumerate(features):
+#         if isinstance(entry, str):
+#             entry = int(entry.strip())
+#         print(i, entry)
+#         feature2idx[entry] = i
+#     return feature2idx
+
 def featureToIdx(features):
     feature2idx = {}
-    for i, entry in enumerate(features):
-        if isinstance(entry, str):
-            entry = int(entry.strip())
-        feature2idx[entry] = i
+    feature2idx[int(0)] = 0 #will be used to mask padding "codes" in the model
+    idx=1
+    for entry in features:
+        print(idx, entry)
+        feature2idx[int(entry)] = idx
+        idx+=1
     return feature2idx
 
 
@@ -133,6 +146,7 @@ def map_ICD9_to_CCS(pandasDataFrame, baseCodeSet=None, writeIcdIdx=False):
     icd9Set.add("-1")
     baseCodeSet.update(icd9Set)
     if writeIcdIdx:
+        baseCodeSet = sorted({int(entry.strip()) for entry in baseCodeSet})
         icd9ToIdx = featureToIdx(baseCodeSet)
         writeToJSON(icd9ToIdx, "./data/extended/Icd9ToIdx.json")
 
@@ -140,6 +154,7 @@ def map_ICD9_to_CCS(pandasDataFrame, baseCodeSet=None, writeIcdIdx=False):
     ccsSet.add("-1    ") #Adjusting the set to convert "     " to "-1    " which can be converted to integer type (" " cannot be converted to integer)
     ccsSet.remove("      ")
     if not os.path.isfile("./data/extended/CCSToIdx.json"):
+        ccsSet = sorted({int(entry.strip()) for entry in ccsSet})
         ccsToIdx = featureToIdx(ccsSet)
         writeToJSON(ccsToIdx, "./data/extended/CCSToIdx.json")
 
@@ -147,7 +162,6 @@ def map_ICD9_to_CCS(pandasDataFrame, baseCodeSet=None, writeIcdIdx=False):
     print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
     print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
     return mappedCCSList, baseCodeSet
-
 
 
 def get_unique_ordered_medication(pandasDataFrame):
@@ -159,7 +173,6 @@ def get_unique_ordered_medication(pandasDataFrame):
             ndc = int(ndc[2].strip("\n"))
             RxNormNdcs.add(ndc)
         print(len(RxNormNdcs))
-
     mapped=0
     unmapped=0
     if "NDC" in pandasDataFrame.columns.values:
@@ -191,6 +204,7 @@ def get_unique_ordered_medication(pandasDataFrame):
     # print("mapped: {}, unmapped: {}".format(mapped, unmapped))
     # print(counter)
     return pandasDataFrame
+
 
 
 df_adm = pd.read_csv('/backup/mimiciii/ADMISSIONS.csv.gz', compression="gzip")
