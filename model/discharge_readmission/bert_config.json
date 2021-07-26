@@ -9,5 +9,13 @@
   "num_attention_heads": 12,
   "num_hidden_layers": 12,
   "type_vocab_size": 2,
-  "vocab_size": 30522
+  "vocab_size": 30522,
+  "icd9_vocab_size": 19178,
+  "ccs_vocab_size": 239,
+  "ndc_vocab_size": 237343,
+  "icd9_hidden_size": 100,
+  "ccs_hidden_size": 100,
+  "ndc_hidden_size": 100,
+  "admittime_hidden_size": 50,
+  "duration_hidden_size": 50
 }
