@@ -882,12 +882,11 @@ def main():
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)
             label_ids = label_ids.to(device)
-            print("LABEL IDS: {}".format(label_ids))
             extraFeatures = [feature.to(device) for feature in extraFeatures]
 
             with torch.no_grad():
                 tmp_eval_loss, temp_logits = model(input_ids, segment_ids, input_mask, label_ids, args.additional_features, extraFeatures, featurePositionDict)
-                logits = model(input_ids,segment_ids,input_mask,args.additional_features, extraFeatures, featurePositionDict)
+                logits = model(input_ids,segment_ids,input_mask, additional_features_name=args.additional_features, additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
             
             logits = torch.squeeze(m(logits)).detach().cpu().numpy()
             label_ids = label_ids.to('cpu').numpy()
