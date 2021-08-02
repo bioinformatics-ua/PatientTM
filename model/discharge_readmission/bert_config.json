@@ -15,9 +15,9 @@
   "ndc_vocab_size": 237343,
   "icd9_ccs_maxlen": 40,
   "ndc_maxlen": 200,
-  "icd9_hidden_size": 100,
-  "ccs_hidden_size": 100,
-  "ndc_hidden_size": 100,
-  "admittime_hidden_size": 100,
-  "duration_hidden_size": 100
+  "icd9_hidden_size": 50,
+  "ccs_hidden_size": 50,
+  "ndc_hidden_size": 50,
+  "admittime_hidden_size": 50,
+  "duration_hidden_size": 50
 }
