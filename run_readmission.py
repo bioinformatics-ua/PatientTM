@@ -48,7 +48,7 @@ from torch import nn
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam
 #important
-from modeling_readmission import BertForSequenceClassification
+from modeling_readmission import BertForSequenceClassification, BertForSequenceClassificationOriginal
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -234,6 +234,14 @@ class readmissionProcessor(DataProcessor):
                     if pd.isna(features["ndc"]): features["ndc"] = [-1]
                     else: features["ndc"] = [int(x) for x in processString(line[8],charsToRemove = "[]\' ").split(',')]
                 else: features["ndc"] = None
+            else:
+                features["admittime"] = None
+                features["duration"] = None
+                features["diag_icd9"] = None
+                features["diag_ccs"] = None
+                features["proc_icd9"] = None
+                features["proc_ccs"] = None
+                features["ndc"] = None
 
             features["label"] = str(int(line[9]))
             features["text_a"] = line[10]
@@ -246,18 +254,19 @@ class readmissionProcessor(DataProcessor):
 def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, additionalFeatures, maxLenDict):
     """Loads a data file into a list of `InputBatch`s."""
 
-    """Load the mapping dictionaries for additional features, to be used later to convert to ids"""
-    if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
-        with open("./data/extended/Icd9ToIdx.json","r") as file:
-            icd9MappingDict = json.load(file)
+    if additionalFeatures is not None:
+        """Load the mapping dictionaries for additional features, to be used later to convert to ids"""
+        if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
+            with open("./data/extended/Icd9ToIdx.json","r") as file:
+                icd9MappingDict = json.load(file)
 
-    if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
-        with open("./data/extended/CCSToIdx.json","r") as file:
-            ccsMappingDict = json.load(file)
+        if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
+            with open("./data/extended/CCSToIdx.json","r") as file:
+                ccsMappingDict = json.load(file)
 
-    if "ndc" in additionalFeatures:
-        with open("./data/extended/NDCToIdx.json","r") as file:
-            ndcMappingDict = json.load(file)
+        if "ndc" in additionalFeatures:
+            with open("./data/extended/NDCToIdx.json","r") as file:
+                ndcMappingDict = json.load(file)
 
     label_map = {}
     for (i, label) in enumerate(label_list):
@@ -671,10 +680,11 @@ def main():
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
-    model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.additional_features)
+    # model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.additional_features)
+    model = BertForSequenceClassificationOriginal.from_pretrained(args.bert_model, 1)
+
     # print(list(model.named_parameters()))
 # SEE THIS AND CHANGE MODEL NAMED PARAMETERS TO SEE WHAT PARAMETERS ARE APPEARING, WITHOUT THE GIANT TENSORS IN THE OUTPUT
-
     if args.fp16:
         model.half()
     model.to(device)
@@ -683,6 +693,8 @@ def main():
                                                           output_device=args.local_rank)
     elif n_gpu > 1:
         model = torch.nn.DataParallel(model)
+
+    print(torch.cuda.memory_summary())
 
     if args.do_train:
         # Prepare optimizer
@@ -725,34 +737,35 @@ def main():
         featurePositionDict = {}
         positionIdx=0
         # additionalFeatureOrder = [feature for feature in args.additional_features]
-        # if "admittime" in args.additional_features:
-        #     tensors.append(torch.tensor([f.admittime for f in eval_features], dtype=torch.long))
-        #     featurePositionDict["admittime"] = positionIdx
-        #     positionIdx+=1
-        if "duration"  in args.additional_features:
-            tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.long))
-            featurePositionDict["duration"] = positionIdx
-            positionIdx+=1
-        if "diag_icd9" in args.additional_features:
-            tensors.append(torch.tensor([f.diag_icd9 for f in train_features], dtype=torch.long))
-            featurePositionDict["diag_icd9"] = positionIdx
-            positionIdx+=1
-        if "diag_ccs"  in args.additional_features:
-            tensors.append(torch.tensor([f.diag_ccs for f in train_features], dtype=torch.long))
-            featurePositionDict["diag_ccs"] = positionIdx
-            positionIdx+=1
-        if "proc_icd9" in args.additional_features:
-            tensors.append(torch.tensor([f.proc_icd9 for f in train_features], dtype=torch.long))
-            featurePositionDict["proc_icd9"] = positionIdx
-            positionIdx+=1
-        if "proc_ccs"  in args.additional_features:
-            tensors.append(torch.tensor([f.proc_ccs for f in train_features], dtype=torch.long))
-            featurePositionDict["proc_ccs"] = positionIdx
-            positionIdx+=1
-        if "ndc"       in args.additional_features:
-            tensors.append(torch.tensor([f.ndc for f in train_features], dtype=torch.long))
-            featurePositionDict["ndc"] = positionIdx
-            positionIdx+=1
+        if args.additional_features is not None:
+            if "admittime" in args.additional_features:
+                tensors.append(torch.tensor([f.admittime for f in eval_features], dtype=torch.long))
+                featurePositionDict["admittime"] = positionIdx
+                positionIdx+=1
+            if "duration"  in args.additional_features:
+                tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.long))
+                featurePositionDict["duration"] = positionIdx
+                positionIdx+=1
+            if "diag_icd9" in args.additional_features:
+                tensors.append(torch.tensor([f.diag_icd9 for f in train_features], dtype=torch.long))
+                featurePositionDict["diag_icd9"] = positionIdx
+                positionIdx+=1
+            if "diag_ccs"  in args.additional_features:
+                tensors.append(torch.tensor([f.diag_ccs for f in train_features], dtype=torch.long))
+                featurePositionDict["diag_ccs"] = positionIdx
+                positionIdx+=1
+            if "proc_icd9" in args.additional_features:
+                tensors.append(torch.tensor([f.proc_icd9 for f in train_features], dtype=torch.long))
+                featurePositionDict["proc_icd9"] = positionIdx
+                positionIdx+=1
+            if "proc_ccs"  in args.additional_features:
+                tensors.append(torch.tensor([f.proc_ccs for f in train_features], dtype=torch.long))
+                featurePositionDict["proc_ccs"] = positionIdx
+                positionIdx+=1
+            if "ndc"       in args.additional_features:
+                tensors.append(torch.tensor([f.ndc for f in train_features], dtype=torch.long))
+                featurePositionDict["ndc"] = positionIdx
+                positionIdx+=1
 
         train_data = TensorDataset(*tensors)
 
@@ -766,9 +779,19 @@ def main():
             tr_loss = 0
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(train_dataloader):
-                batch = tuple(t.to(device) for t in batch)
+                # batch = tuple(t.to(device) for t in batch)
+                #
                 input_ids, input_mask, segment_ids, label_ids, *extraFeatures = batch
-                loss, logits = model(input_ids, segment_ids, input_mask, label_ids, args.additional_features, extraFeatures, featurePositionDict)
+                input_ids = input_ids.to(device)
+                input_mask = input_mask.to(device)
+                segment_ids = segment_ids.to(device)
+                label_ids = label_ids.to(device)
+                if extraFeatures:
+                    extraFeatures = [feature.to(device) for feature in extraFeatures]
+                    loss, logits = model(input_ids, segment_ids, input_mask, label_ids, args.additional_features, extraFeatures, featurePositionDict)
+                else:
+                    loss, logits = model(input_ids, segment_ids, input_mask, label_ids)
+
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.fp16 and args.loss_scale != 1.0:
@@ -838,30 +861,31 @@ def main():
         #     tensors.append(torch.tensor([f.admittime for f in eval_features], dtype=torch.long))
         #     featurePositionDict["admittime"] = positionIdx
         #     positionIdx+=1
-        if "duration"  in args.additional_features:
-            tensors.append(torch.tensor([f.duration for f in eval_features], dtype=torch.long))
-            featurePositionDict["duration"] = positionIdx
-            positionIdx+=1
-        if "diag_icd9" in args.additional_features:
-            tensors.append(torch.tensor([f.diag_icd9 for f in eval_features], dtype=torch.long))
-            featurePositionDict["diag_icd9"] = positionIdx
-            positionIdx+=1
-        if "diag_ccs"  in args.additional_features:
-            tensors.append(torch.tensor([f.diag_ccs for f in eval_features], dtype=torch.long))
-            featurePositionDict["diag_ccs"] = positionIdx
-            positionIdx+=1
-        if "proc_icd9" in args.additional_features:
-            tensors.append(torch.tensor([f.proc_icd9 for f in eval_features], dtype=torch.long))
-            featurePositionDict["proc_icd9"] = positionIdx
-            positionIdx+=1
-        if "proc_ccs"  in args.additional_features:
-            tensors.append(torch.tensor([f.proc_ccs for f in eval_features], dtype=torch.long))
-            featurePositionDict["proc_ccs"] = positionIdx
-            positionIdx+=1
-        if "ndc"       in args.additional_features:
-            tensors.append(torch.tensor([f.ndc for f in eval_features], dtype=torch.long))
-            featurePositionDict["ndc"] = positionIdx
-            positionIdx+=1
+        if args.additional_features is not None:
+            if "duration"  in args.additional_features:
+                tensors.append(torch.tensor([f.duration for f in eval_features], dtype=torch.long))
+                featurePositionDict["duration"] = positionIdx
+                positionIdx+=1
+            if "diag_icd9" in args.additional_features:
+                tensors.append(torch.tensor([f.diag_icd9 for f in eval_features], dtype=torch.long))
+                featurePositionDict["diag_icd9"] = positionIdx
+                positionIdx+=1
+            if "diag_ccs"  in args.additional_features:
+                tensors.append(torch.tensor([f.diag_ccs for f in eval_features], dtype=torch.long))
+                featurePositionDict["diag_ccs"] = positionIdx
+                positionIdx+=1
+            if "proc_icd9" in args.additional_features:
+                tensors.append(torch.tensor([f.proc_icd9 for f in eval_features], dtype=torch.long))
+                featurePositionDict["proc_icd9"] = positionIdx
+                positionIdx+=1
+            if "proc_ccs"  in args.additional_features:
+                tensors.append(torch.tensor([f.proc_ccs for f in eval_features], dtype=torch.long))
+                featurePositionDict["proc_ccs"] = positionIdx
+                positionIdx+=1
+            if "ndc"       in args.additional_features:
+                tensors.append(torch.tensor([f.ndc for f in eval_features], dtype=torch.long))
+                featurePositionDict["ndc"] = positionIdx
+                positionIdx+=1
 
         eval_data = TensorDataset(*tensors)
 
@@ -877,12 +901,16 @@ def main():
         pred_labels=[]
         logits_history=[]
 
+        print(torch.cuda.memory_summary)
+
         for input_ids, input_mask, segment_ids, label_ids, *extraFeatures in tqdm(eval_dataloader):
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)
             label_ids = label_ids.to(device)
             extraFeatures = [feature.to(device) for feature in extraFeatures]
+
+            print(torch.cuda.memory_summary)
 
             with torch.no_grad():
                 tmp_eval_loss, temp_logits = model(input_ids, segment_ids, input_mask, label_ids, args.additional_features, extraFeatures, featurePositionDict)

@@ -947,75 +947,75 @@ class BertForQuestionAnswering(PreTrainedBertModel):
             return start_logits, end_logits
 
 
-# class BertForSequenceClassification(PreTrainedBertModel):
-#     """BERT model for classification.
-#     This module is composed of the BERT model with a linear layer on top of
-#     the pooled output.
-#
-#     Params:
-#         `config`: a BertConfig class instance with the configuration to build a new model.
-#         `num_labels`: the number of classes for the classifier. Default = 2.
-#
-#     Inputs:
-#         `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length]
-#             with the word token indices in the vocabulary(see the tokens preprocessing logic in the scripts
-#             `extract_features.py`, `run_classifier.py` and `run_squad.py`)
-#         `token_type_ids`: an optional torch.LongTensor of shape [batch_size, sequence_length] with the token
-#             types indices selected in [0, 1]. Type 0 corresponds to a `sentence A` and type 1 corresponds to
-#             a `sentence B` token (see BERT paper for more details).
-#         `attention_mask`: an optional torch.LongTensor of shape [batch_size, sequence_length] with indices
-#             selected in [0, 1]. It's a mask to be used if the input sequence length is smaller than the max
-#             input sequence length in the current batch. It's the mask that we typically use for attention when
-#             a batch has varying length sentences.
-#         `labels`: labels for the classification output: torch.LongTensor of shape [batch_size]
-#             with indices selected in [0, ..., num_labels].
-#
-#     Outputs:
-#         if `labels` is not `None`:
-#             Outputs the CrossEntropy classification loss of the output with the labels.
-#         if `labels` is `None`:
-#             Outputs the classification logits.
-#
-#     Example usage:
-#     ```python
-#     # Already been converted into WordPiece token ids
-#     input_ids = torch.LongTensor([[31, 51, 99], [15, 5, 0]])
-#     input_mask = torch.LongTensor([[1, 1, 1], [1, 1, 0]])
-#     token_type_ids = torch.LongTensor([[0, 0, 1], [0, 2, 0]])
-#
-#     config = BertConfig(vocab_size=32000, hidden_size=512,
-#         num_hidden_layers=8, num_attention_heads=6, intermediate_size=1024)
-#
-#     num_labels = 2
-#
-#     model = BertForSequenceClassification(config, num_labels)
-#     logits = model(input_ids, token_type_ids, input_mask)
-#     ```
-#     """
-#     def __init__(self, config, num_labels):
-#         super(BertForSequenceClassification, self).__init__(config)
-#         self.bert = BertModel(config)
-#         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-#         self.classifier = nn.Linear(config.hidden_size, num_labels)
-#         self.apply(self.init_bert_weights)
-#
-#     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
-#         _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-#
-#         pooled_output2 = self.dropout(pooled_output)
-#         logits = self.classifier(pooled_output2)
-#
-#         if labels is not None:
-#             loss_fct = BCELoss()
-#             m = nn.Sigmoid()
-#             #n = torch.squeeze(m(logits))
-#             #loss = loss_fct(n, labels.float())
-#             #loss = loss_fct(n.reshape(-1,1), labels.float().reshape(-1,1))
-#             n = torch.squeeze(m(logits), dim=-1)
-#             loss = loss_fct(n, labels.float())
-#             return loss, logits
-#         else:
-#             return logits
+class BertForSequenceClassificationOriginal(PreTrainedBertModel):
+    """BERT model for classification.
+    This module is composed of the BERT model with a linear layer on top of
+    the pooled output.
+
+    Params:
+        `config`: a BertConfig class instance with the configuration to build a new model.
+        `num_labels`: the number of classes for the classifier. Default = 2.
+
+    Inputs:
+        `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length]
+            with the word token indices in the vocabulary(see the tokens preprocessing logic in the scripts
+            `extract_features.py`, `run_classifier.py` and `run_squad.py`)
+        `token_type_ids`: an optional torch.LongTensor of shape [batch_size, sequence_length] with the token
+            types indices selected in [0, 1]. Type 0 corresponds to a `sentence A` and type 1 corresponds to
+            a `sentence B` token (see BERT paper for more details).
+        `attention_mask`: an optional torch.LongTensor of shape [batch_size, sequence_length] with indices
+            selected in [0, 1]. It's a mask to be used if the input sequence length is smaller than the max
+            input sequence length in the current batch. It's the mask that we typically use for attention when
+            a batch has varying length sentences.
+        `labels`: labels for the classification output: torch.LongTensor of shape [batch_size]
+            with indices selected in [0, ..., num_labels].
+
+    Outputs:
+        if `labels` is not `None`:
+            Outputs the CrossEntropy classification loss of the output with the labels.
+        if `labels` is `None`:
+            Outputs the classification logits.
+
+    Example usage:
+    ```python
+    # Already been converted into WordPiece token ids
+    input_ids = torch.LongTensor([[31, 51, 99], [15, 5, 0]])
+    input_mask = torch.LongTensor([[1, 1, 1], [1, 1, 0]])
+    token_type_ids = torch.LongTensor([[0, 0, 1], [0, 2, 0]])
+
+    config = BertConfig(vocab_size=32000, hidden_size=512,
+        num_hidden_layers=8, num_attention_heads=6, intermediate_size=1024)
+
+    num_labels = 2
+
+    model = BertForSequenceClassification(config, num_labels)
+    logits = model(input_ids, token_type_ids, input_mask)
+    ```
+    """
+    def __init__(self, config, num_labels):
+        super(BertForSequenceClassificationOriginal, self).__init__(config)
+        self.bert = BertModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.classifier = nn.Linear(config.hidden_size, num_labels)
+        self.apply(self.init_bert_weights)
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
+        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+
+        pooled_output2 = self.dropout(pooled_output)
+        logits = self.classifier(pooled_output2)
+
+        if labels is not None:
+            loss_fct = BCELoss()
+            m = nn.Sigmoid()
+            #n = torch.squeeze(m(logits))
+            #loss = loss_fct(n, labels.float())
+            #loss = loss_fct(n.reshape(-1,1), labels.float().reshape(-1,1))
+            n = torch.squeeze(m(logits), dim=-1)
+            loss = loss_fct(n, labels.float())
+            return loss, logits
+        else:
+            return logits
 
 
 
@@ -1068,50 +1068,51 @@ class BertForSequenceClassification(PreTrainedBertModel):
         super(BertForSequenceClassification, self).__init__(config)
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # self.classifier = nn.Linear(config.hidden_size, num_labels)
-        self.classifier = nn.Linear(config.hidden_size*2, num_labels)
+        self.classifier = nn.Linear(config.hidden_size, num_labels)
+        # self.classifier = nn.Linear(config.hidden_size*2, num_labels)
 
-        if "admittime" in additionalFeatures:
-            self.admittime_dense =  nn.Linear(1, config.admittime_hidden_size)
-            self.admittime_layernorm_1 = LayerNorm(config.admittime_hidden_size)
-            self.admittime_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
-        if "duration" in additionalFeatures:
-            self.duration_dense =  nn.Linear(1, config.duration_hidden_size)
-            self.duration_layernorm_1 = LayerNorm(config.duration_hidden_size)
-            self.duration_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
-        if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
-            self.icd9_embeddings = nn.Embedding(config.icd9_vocab_size, config.icd9_hidden_size)
-            if "diag_icd9" in additionalFeatures:
-                # self.diag_icd9_dense_1 = nn.Linear(config.icd9_hidden_size, config.icd9_hidden_size)
-                # self.diag_icd9_layernorm_1 = LayerNorm(config.icd9_hidden_size)
-                # self.diag_icd9_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+        if additionalFeatures is not None:
+            if "admittime" in additionalFeatures:
+                self.admittime_dense =  nn.Linear(1, config.admittime_hidden_size)
+                self.admittime_layernorm_1 = LayerNorm(config.admittime_hidden_size)
+                self.admittime_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+            if "duration" in additionalFeatures:
+                self.duration_dense =  nn.Linear(1, config.duration_hidden_size)
+                self.duration_layernorm_1 = LayerNorm(config.duration_hidden_size)
+                self.duration_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+            if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
+                self.icd9_embeddings = nn.Embedding(config.icd9_vocab_size, config.icd9_hidden_size)
+                if "diag_icd9" in additionalFeatures:
+                    # self.diag_icd9_dense_1 = nn.Linear(config.icd9_hidden_size, config.icd9_hidden_size)
+                    # self.diag_icd9_layernorm_1 = LayerNorm(config.icd9_hidden_size)
+                    # self.diag_icd9_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
 
-#THIS WAS CHANGED TO WORK AS A BOTTLENECK LAYER THAT REDUCES A LIST OF CODES TO A SINGLE REPRESENTATION WITH THE SAME SIZE OF BERT OUTPUT
-                self.diag_icd9_dense_1 = nn.Linear(config.icd9_hidden_size * config.icd9_ccs_maxlen, config.hidden_size)
-                self.diag_icd9_layernorm_1 = LayerNorm(config.hidden_size)
-                self.diag_icd9_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+    #THIS WAS CHANGED TO WORK AS A BOTTLENECK LAYER THAT REDUCES A LIST OF CODES TO A SINGLE REPRESENTATION WITH THE SAME SIZE OF BERT OUTPUT
+                    self.diag_icd9_dense_1 = nn.Linear(config.icd9_hidden_size * config.icd9_ccs_maxlen, config.hidden_size)
+                    self.diag_icd9_layernorm_1 = LayerNorm(config.hidden_size)
+                    self.diag_icd9_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
 
-            if "proc_icd9" in additionalFeatures:
-                self.proc_icd9_dense_1 = nn.Linear(config.icd9_hidden_size, config.icd9_hidden_size)
-                self.proc_icd9_layernorm_1 = LayerNorm(config.icd9_hidden_size)
-                self.proc_icd9_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+                if "proc_icd9" in additionalFeatures:
+                    self.proc_icd9_dense_1 = nn.Linear(config.icd9_hidden_size, config.icd9_hidden_size)
+                    self.proc_icd9_layernorm_1 = LayerNorm(config.icd9_hidden_size)
+                    self.proc_icd9_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
 
-        if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
-            self.ccs_embeddings  = nn.Embedding(config.ccs_vocab_size, config.ccs_hidden_size)
-            if "diag_ccs" in additionalFeatures:
-                self.diag_ccs_dense_1 = nn.Linear(config.ccs_hidden_size, config.ccs_hidden_size)
-                self.diag_ccs_layernorm_1 = LayerNorm(config.ccs_hidden_size)
-                self.diag_ccs_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
-            if "proc_ccs" in additionalFeatures:
-                self.proc_ccs_dense_1 = nn.Linear(config.ccs_hidden_size, config.ccs_hidden_size)
-                self.proc_ccs_layernorm_1 = LayerNorm(config.ccs_hidden_size)
-                self.proc_ccs_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+            if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
+                self.ccs_embeddings  = nn.Embedding(config.ccs_vocab_size, config.ccs_hidden_size)
+                if "diag_ccs" in additionalFeatures:
+                    self.diag_ccs_dense_1 = nn.Linear(config.ccs_hidden_size, config.ccs_hidden_size)
+                    self.diag_ccs_layernorm_1 = LayerNorm(config.ccs_hidden_size)
+                    self.diag_ccs_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+                if "proc_ccs" in additionalFeatures:
+                    self.proc_ccs_dense_1 = nn.Linear(config.ccs_hidden_size, config.ccs_hidden_size)
+                    self.proc_ccs_layernorm_1 = LayerNorm(config.ccs_hidden_size)
+                    self.proc_ccs_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
 
-        if "ndc" in additionalFeatures:
-            self.ndc_embeddings  = nn.Embedding(config.ndc_vocab_size, config.ndc_hidden_size)
-            self.ndc_dense_1 = nn.Linear(config.ndc_hidden_size, config.ndc_hidden_size)
-            self.ndc_layernorm_1 = LayerNorm(config.ndc_hidden_size)
-            self.ndc_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
+            if "ndc" in additionalFeatures:
+                self.ndc_embeddings  = nn.Embedding(config.ndc_vocab_size, config.ndc_hidden_size)
+                self.ndc_dense_1 = nn.Linear(config.ndc_hidden_size, config.ndc_hidden_size)
+                self.ndc_layernorm_1 = LayerNorm(config.ndc_hidden_size)
+                self.ndc_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
 
         self.apply(self.init_bert_weights)
 
@@ -1121,62 +1122,68 @@ class BertForSequenceClassification(PreTrainedBertModel):
         _, bert_pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         pooled_output2 = self.dropout(bert_pooled_output)
 
-        if "admittime" in additional_features_name:
-            admittime_output = self.admittime_dense(additional_features_tensors[feature_position_dict["admittime"]])
-            admittime_output = self.admittime_layernorm_1(admittime_output)
-            admittime_output = self.admittime_dropout_1(admittime_output)
+        t = torch.cuda.get_device_properties(0).total_memory
+        r = torch.cuda.memory_reserved(0)
+        a = torch.cuda.memory_allocated(0)
+        f = r-a  # free inside reserved
+        print("total memory {} reserved memory {} allocated memory {} free inside reserved {}".format(t,r,a,f))
 
-        if "duration" in additional_features_name:
-            duration_output = self.duration_dense(additional_features_tensors[feature_position_dict["duration"]])
-            duration_output = self.duration_layernorm_1(duration_output)
-            duration_output = self.duration_dropout_1(duration_output)
+        if additional_features_name is not None:
+            if "admittime" in additional_features_name:
+                admittime_output = self.admittime_dense(additional_features_tensors[feature_position_dict["admittime"]])
+                admittime_output = self.admittime_layernorm_1(admittime_output)
+                admittime_output = self.admittime_dropout_1(admittime_output)
 
-        if "diag_icd9" in additional_features_name:
-            #print("Printing diag_icd9: {}".format(additional_features_tensors[feature_position_dict["diag_icd9"]]))
-            diag_icd9_output = self.icd9_embeddings(additional_features_tensors[feature_position_dict["diag_icd9"]])
-#THIS FLATTEN IS TO "CONCATENATE" ALL CODES IN A SINGLE DIMENSION, AND PUSH THEM THROUGH A BOTTLENECK LAYER
-            diag_icd9_output = diag_icd9_output.flatten(start_dim=1)
-            # print(diag_icd9_output.size())
-            diag_icd9_output = self.diag_icd9_dense_1(diag_icd9_output)
-            diag_icd9_output = self.diag_icd9_layernorm_1(diag_icd9_output)
-            diag_icd9_output = self.diag_icd9_dropout_1(diag_icd9_output)
-            # print(diag_icd9_output.size())
+            if "duration" in additional_features_name:
+                duration_output = self.duration_dense(additional_features_tensors[feature_position_dict["duration"]])
+                duration_output = self.duration_layernorm_1(duration_output)
+                duration_output = self.duration_dropout_1(duration_output)
 
-        if "proc_icd9" in additional_features_name:
-            #print("Printing proc_icd9: {}".format(additional_features_tensors[feature_position_dict["proc_icd9"]]))
-            proc_icd9_output = self.icd9_embeddings(additional_features_tensors[feature_position_dict["proc_icd9"]])
-            proc_icd9_output = self.proc_icd9_dense_1(proc_icd9_output)
-            proc_icd9_output = self.proc_icd9_layernorm_1(proc_icd9_output)
-            proc_icd9_output = self.proc_icd9_dropout_1(proc_icd9_output)
+            if "diag_icd9" in additional_features_name:
+                #print("Printing diag_icd9: {}".format(additional_features_tensors[feature_position_dict["diag_icd9"]]))
+                diag_icd9_output = self.icd9_embeddings(additional_features_tensors[feature_position_dict["diag_icd9"]])
+    #THIS FLATTEN IS TO "CONCATENATE" ALL CODES IN A SINGLE DIMENSION, AND PUSH THEM THROUGH A BOTTLENECK LAYER
+                diag_icd9_output = diag_icd9_output.flatten(start_dim=1)
+                # print(diag_icd9_output.size())
+                diag_icd9_output = self.diag_icd9_dense_1(diag_icd9_output)
+                diag_icd9_output = self.diag_icd9_layernorm_1(diag_icd9_output)
+                diag_icd9_output = self.diag_icd9_dropout_1(diag_icd9_output)
+                # print(diag_icd9_output.size())
 
-        if "diag_ccs" in additional_features_name:
-            #print("Printing diag_ccs: {}".format(additional_features_tensors[feature_position_dict["diag_ccs"]]))
-            diag_ccs_output = self.ccs_embeddings(additional_features_tensors[feature_position_dict["diag_ccs"]])
-            diag_ccs_output = self.diag_ccs_dense_1(diag_ccs_output)
-            diag_ccs_output = self.diag_ccs_layernorm_1(diag_ccs_output)
-            diag_ccs_output = self.diag_ccs_dropout_1(diag_ccs_output)
+            if "proc_icd9" in additional_features_name:
+                #print("Printing proc_icd9: {}".format(additional_features_tensors[feature_position_dict["proc_icd9"]]))
+                proc_icd9_output = self.icd9_embeddings(additional_features_tensors[feature_position_dict["proc_icd9"]])
+                proc_icd9_output = self.proc_icd9_dense_1(proc_icd9_output)
+                proc_icd9_output = self.proc_icd9_layernorm_1(proc_icd9_output)
+                proc_icd9_output = self.proc_icd9_dropout_1(proc_icd9_output)
 
-        if "proc_ccs" in additional_features_name:
-            #print("Printing proc_ccs: {}".format(additional_features_tensors[feature_position_dict["proc_ccs"]]))
-            proc_ccs_output = self.ccs_embeddings(additional_features_tensors[feature_position_dict["proc_ccs"]])
-            proc_ccs_output = self.proc_ccs_dense_1(proc_ccs_output)
-            proc_ccs_output = self.proc_ccs_layernorm_1(proc_ccs_output)
-            proc_ccs_output = self.proc_ccs_dropout_1(proc_ccs_output)
+            if "diag_ccs" in additional_features_name:
+                #print("Printing diag_ccs: {}".format(additional_features_tensors[feature_position_dict["diag_ccs"]]))
+                diag_ccs_output = self.ccs_embeddings(additional_features_tensors[feature_position_dict["diag_ccs"]])
+                diag_ccs_output = self.diag_ccs_dense_1(diag_ccs_output)
+                diag_ccs_output = self.diag_ccs_layernorm_1(diag_ccs_output)
+                diag_ccs_output = self.diag_ccs_dropout_1(diag_ccs_output)
 
-        if "ndc" in additional_features_name:
-            ndc_output = self.ndc_embeddings(additional_features_tensors[feature_position_dict["ndc"]])
-            ndc_output = self.ndc_dense_1(ndc_output)
-            ndc_output = self.ndc_layernorm_1(ndc_output)
-            ndc_output = self.ndc_dropout_1(ndc_output)
+            if "proc_ccs" in additional_features_name:
+                #print("Printing proc_ccs: {}".format(additional_features_tensors[feature_position_dict["proc_ccs"]]))
+                proc_ccs_output = self.ccs_embeddings(additional_features_tensors[feature_position_dict["proc_ccs"]])
+                proc_ccs_output = self.proc_ccs_dense_1(proc_ccs_output)
+                proc_ccs_output = self.proc_ccs_layernorm_1(proc_ccs_output)
+                proc_ccs_output = self.proc_ccs_dropout_1(proc_ccs_output)
+
+            if "ndc" in additional_features_name:
+                ndc_output = self.ndc_embeddings(additional_features_tensors[feature_position_dict["ndc"]])
+                ndc_output = self.ndc_dense_1(ndc_output)
+                ndc_output = self.ndc_layernorm_1(ndc_output)
+                ndc_output = self.ndc_dropout_1(ndc_output)
 
 
-
-#   processo final de combinar?
-#   usar linear e depois bilstm-crf?
-        if "diag_icd9" in additional_features_name:
-            # print(pooled_output2.size())
-            # print(diag_icd9_output.size())
-            pooled_output2 = torch.cat((pooled_output2, diag_icd9_output), dim=1)
+    #   processo final de combinar?
+    #   usar linear e depois bilstm-crf?
+            if "diag_icd9" in additional_features_name:
+                # print(pooled_output2.size())
+                # print(diag_icd9_output.size())
+                pooled_output2 = torch.cat((pooled_output2, diag_icd9_output), dim=1)
 
         logits = self.classifier(pooled_output2)
         if labels is not None:
