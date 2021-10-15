@@ -1,6 +1,6 @@
 {
   "attention_probs_dropout_prob": 0.1,
-  "hidden_act": "gelu",
+  "hidden_act": "mish",
   "hidden_dropout_prob": 0.1,
   "hidden_size": 768,
   "initializer_range": 0.02,
@@ -17,5 +17,8 @@
   "ccs_hidden_size": 100,
   "ndc_hidden_size": 100,
   "admittime_hidden_size": 50,
-  "duration_hidden_size": 50
+  "duration_hidden_size": 50,
+  "daystonextadmit_hidden_size": 50,
+  "icd9_ccs_maxlen": 40,
+  "ndc_maxlen": 200
 }
