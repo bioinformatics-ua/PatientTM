@@ -113,7 +113,8 @@ class DataProcessor(object):
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
-        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DURATION,file.DIAG_ICD9,file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.Label,file.TEXT)
+        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DURATION,file.DIAG_ICD9,\
+                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.Label,file.TEXT)
         return lines
 
 class readmissionProcessor(DataProcessor):
