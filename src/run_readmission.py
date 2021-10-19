@@ -441,118 +441,67 @@ def main():
                     model.zero_grad()
                     global_step += 1     
                     
-                if (step+1)==5:    
-                    ## Setting model in evaluation mode:
-                    model.eval()  
-                    m = nn.Sigmoid()
-                    val_loss, val_accuracy = 0, 0
-                    nb_val_steps, nb_val_examples = 0, 0
-                    true_labels=[]
-                    pred_labels=[]
-                    logits_history = []
-                    for step, batch in enumerate(tqdm(val_dataloader, desc="Validation Step")):
-                        input_ids, input_mask, segment_ids, label_ids, *extraFeatures = batch
-                        input_ids = input_ids.to(device)
-                        input_mask = input_mask.to(device)
-                        segment_ids = segment_ids.to(device)
-                        label_ids = label_ids.to(device)
-
-                        ## Turning off gradient computation for safety
-                        with torch.no_grad():
-                            if extraFeatures:
-                                extraFeatures = [feature.to(device) for feature in extraFeatures]
-                                loss, logits = model(input_ids, segment_ids, input_mask, label_ids, additional_features_name=args.additional_features,
-                                                     additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
-                            else:
-                                loss, logits = model(input_ids, segment_ids, input_mask, label_ids)
-
-                        logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-                        label_ids = label_ids.to('cpu').numpy()
-
-                        outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                        tmp_val_accuracy=np.sum(outputs == label_ids)
-
-                        true_labels = true_labels + label_ids.flatten().tolist()
-                        pred_labels = pred_labels + outputs.flatten().tolist()
-                        logits_history = logits_history + logits.flatten().tolist()
-
-                        val_loss += loss.mean().item()
-                        val_accuracy += tmp_val_accuracy
-                        nb_val_examples += input_ids.size(0)
-                        nb_val_steps += 1
-                        global_step += 1         
-
-                    val_loss = val_loss/nb_val_steps
-                    val_accuracy = val_accuracy/nb_val_examples
-                    global_step_check = global_step
-                    number_val_steps = nb_val_steps
-
-                    df_val = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
-                    # fpr, tpr, df_out = vote_score(df_val, logits_history, args)
-                    rp80 = vote_pr_curve(df_val, logits_history, args)
-
-                    wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": rp80}) 
-                    ## Setting model back in training mode:
-                    model.train()
-            
-            
             global_step_check=global_step
             number_training_steps=nb_tr_steps
             wandb.log({"Training loss": train_loss/number_training_steps})
             
-            # ## Setting model in evaluation mode:
-            # model.eval()
-            # m = nn.Sigmoid()            
-            # val_loss, val_accuracy = 0, 0
-#             nb_val_steps, nb_val_examples = 0, 0
-#             true_labels=[]
-#             pred_labels=[]
-#             logits_history = []
-#             for step, batch in enumerate(tqdm(val_dataloader, desc="Validation Step")):
-#                 input_ids, input_mask, segment_ids, label_ids, *extraFeatures = batch
-#                 input_ids = input_ids.to(device)
-#                 input_mask = input_mask.to(device)
-#                 segment_ids = segment_ids.to(device)
-#                 label_ids = label_ids.to(device)
+            ## Proceeding with a validation stage on the validation dataset
+            # Setting model in evaluation mode:
+            model.eval()
+            m = nn.Sigmoid()            
+            val_loss, val_accuracy = 0, 0
+            nb_val_steps, nb_val_examples = 0, 0
+            true_labels=[]
+            pred_labels=[]
+            logits_history = []
+            for step, batch in enumerate(tqdm(val_dataloader, desc="Validation Step")):
+                input_ids, input_mask, segment_ids, label_ids, *extraFeatures = batch
+                input_ids = input_ids.to(device)
+                input_mask = input_mask.to(device)
+                segment_ids = segment_ids.to(device)
+                label_ids = label_ids.to(device)
 
-#                 ## Turning off gradient computation for safety
-#                 with torch.no_grad():
-#                     if extraFeatures:
-#                         extraFeatures = [feature.to(device) for feature in extraFeatures]
-#                         loss, logits = model(input_ids, segment_ids, input_mask, label_ids, additional_features_name=args.additional_features,
-#                                              additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
-#                     else:
-#                         loss, logits = model(input_ids, segment_ids, input_mask, label_ids)
+                ## Turning off gradient computation for safety
+                with torch.no_grad():
+                    if extraFeatures:
+                        extraFeatures = [feature.to(device) for feature in extraFeatures]
+                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, additional_features_name=args.additional_features,
+                                             additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
+                    else:
+                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids)
 
-#                 logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-#                 label_ids = label_ids.to('cpu').numpy()
+                logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                label_ids = label_ids.to('cpu').numpy()
 
-#                 outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-#                 tmp_val_accuracy=np.sum(outputs == label_ids)
+                outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+                tmp_val_accuracy=np.sum(outputs == label_ids)
 
-#                 true_labels = true_labels + label_ids.flatten().tolist()
-#                 pred_labels = pred_labels + outputs.flatten().tolist()
-#                 logits_history = logits_history + logits.flatten().tolist()
+                true_labels = true_labels + label_ids.flatten().tolist()
+                pred_labels = pred_labels + outputs.flatten().tolist()
+                logits_history = logits_history + logits.flatten().tolist()
 
-#                 val_loss += loss.mean().item()
-#                 val_accuracy += tmp_val_accuracy
-#                 nb_val_examples += input_ids.size(0)
-#                 nb_val_steps += 1
-#                 global_step += 1         
+                val_loss += loss.mean().item()
+                val_accuracy += tmp_val_accuracy
+                nb_val_examples += input_ids.size(0)
+                nb_val_steps += 1
+                global_step += 1         
 
-#             val_loss = val_loss/nb_val_steps
-#             val_accuracy = val_accuracy/nb_val_examples
-#             global_step_check = global_step
-#             number_val_steps = nb_val_steps
+            val_loss = val_loss/nb_val_steps
+            val_accuracy = val_accuracy/nb_val_examples
+            global_step_check = global_step
+            number_val_steps = nb_val_steps
 
-#             df_val = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
-#             # fpr, tpr, df_out = vote_score(df_val, logits_history, args)
-#             rp80 = vote_pr_curve(df_val, logits_history, args)
+            df_val = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
+            fpr, tpr, df_out = vote_score(df_val, logits_history, args)
+            string = 'validation_logits_clinicalbert_'+args.readmission_mode+'_readmissions.csv'
+            df_out.to_csv(os.path.join(args.output_dir,string))
+        
+            rp80 = vote_pr_curve(df_val, logits_history, args)
 
-#             wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": rp80}) 
+            wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": rp80}) 
             
-#             ## Setting model back in training mode:
-#             model.train()
+            ## Setting model back in training mode:
+            model.train()
             
         string = os.path.join(args.output_dir, 'pytorch_model_new_'+args.readmission_mode+'.bin')
         torch.save(model.state_dict(), string)
@@ -667,14 +616,14 @@ def main():
         
         wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy})        
         
-        string = 'logits_clinicalbert_'+args.readmission_mode+'_chunks.csv'
+        string = 'test_logits_clinicalbert_'+args.readmission_mode+'_chunks.csv'
         df.to_csv(os.path.join(args.output_dir, string))
         
         df_test = pd.read_csv(os.path.join(args.data_dir, "test.csv"))
 
         fpr, tpr, df_out = vote_score(df_test, logits_history, args)
         
-        string = 'logits_clinicalbert_'+args.readmission_mode+'_readmissions.csv'
+        string = 'test_logits_clinicalbert_'+args.readmission_mode+'_readmissions.csv'
         df_out.to_csv(os.path.join(args.output_dir,string))
         
         rp80 = vote_pr_curve(df_test, logits_history, args)
