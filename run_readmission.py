@@ -115,7 +115,7 @@ class DataProcessor(object):
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
-        lines=zip(file.ID,file.TEXT,file.Label)
+        lines=zip(file.HADM_ID,file.TEXT,file.Label)
         return lines
 
 class readmissionProcessor(DataProcessor):
@@ -296,11 +296,11 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
 
 def vote_score(df, score, args):
     df['pred_score'] = score
-    df_sort = df.sort_values(by=['ID'])
+    df_sort = df.sort_values(by=['HADM_ID'])
     #score 
-    temp = (df_sort.groupby(['ID'])['pred_score'].agg(max)+df_sort.groupby(['ID'])['pred_score'].agg(sum)/2)/(1+df_sort.groupby(['ID'])['pred_score'].agg(len)/2)
-    x = df_sort.groupby(['ID'])['Label'].agg(np.min).values
-    df_out = pd.DataFrame({'logits': temp.values, 'ID': x})
+    temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/2)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/2)
+    x = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
+    df_out = pd.DataFrame({'logits': temp.values, 'HADM_ID': x})
 
     fpr, tpr, thresholds = roc_curve(x, temp.values)
     auc_score = auc(fpr, tpr)
@@ -343,10 +343,10 @@ def pr_curve_plot(y, y_score, args):
 
 def vote_pr_curve(df, score, args):
     df['pred_score'] = score
-    df_sort = df.sort_values(by=['ID'])
+    df_sort = df.sort_values(by=['HADM_ID'])
     #score 
-    temp = (df_sort.groupby(['ID'])['pred_score'].agg(max)+df_sort.groupby(['ID'])['pred_score'].agg(sum)/2)/(1+df_sort.groupby(['ID'])['pred_score'].agg(len)/2)
-    y = df_sort.groupby(['ID'])['Label'].agg(np.min).values
+    temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/2)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/2)
+    y = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
     
     precision, recall, thres = precision_recall_curve(y, temp)
     pr_thres = pd.DataFrame(data =  list(zip(precision, recall, thres)), columns = ['prec','recall','thres'])
