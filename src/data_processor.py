@@ -90,6 +90,10 @@ class DataProcessor(object):
     def get_dev_examples(self, data_dir):
         """Gets a collection of `InputExample`s for the dev set."""
         raise NotImplementedError()
+    
+    def get_test_examples(self, data_dir):
+        """Gets a collection of `InputExample`s for the test set."""
+        raise NotImplementedError()
 
     def get_labels(self):
         """Gets the list of labels for this data set. This can vary according to the predictive goal in mind (binary, multiclass, regression)"""
@@ -131,7 +135,7 @@ class readmissionProcessor(DataProcessor):
         return ["0", "1"]
     
     def _create_examples(self, lines, set_type, additionalFeatures=None):
-        """Creates examples for the training and dev sets.
+        """Creates examples for the training, dev and test sets.
         @param additionalFeatures is a list with additional variables to be used"""
         examples = []
         for (i, line) in enumerate(lines):
