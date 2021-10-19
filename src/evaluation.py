@@ -20,7 +20,7 @@ def vote_score(df, score, args):
     #score 
     temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/2)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/2)
     x = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
-    df_out = pd.DataFrame({'logits': temp.values, 'HADM_ID': x})
+    df_out = pd.DataFrame({'logits': temp.values, 'Label': x})
 
     fpr, tpr, thresholds = roc_curve(x, temp.values)
     auc_score = auc(fpr, tpr)
