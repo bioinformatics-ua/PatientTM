@@ -20,5 +20,6 @@
   "duration_hidden_size": 50,
   "daystonextadmit_hidden_size": 50,
   "icd9_ccs_maxlen": 40,
-  "ndc_maxlen": 200
+  "ndc_maxlen": 200,
+  "extra_feat_act": "mish"
 }
