@@ -148,7 +148,8 @@ class readmissionProcessor(DataProcessor):
                 else: features["admittime"] = None
 
                 if "daystonextadmit" in additionalFeatures:
-                    if pd.isna(features["daystonextadmit"]): features["daystonextadmit"] = [-1]
+                    features["daystonextadmit"] = line[3]
+                    if pd.isna(features["daystonextadmit"]): features["daystonextadmit"] = -1
                     else: features["daystonextadmit"] = float(line[3])
                 else: features["daystonextadmit"] = None
 
