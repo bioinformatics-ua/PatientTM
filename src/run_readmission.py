@@ -335,18 +335,18 @@ def main():
         # additionalFeatureOrder = [feature for feature in args.additional_features]
         if args.additional_features is not None:
             if "admittime" in args.additional_features:
-                train_tensors.append(torch.tensor([f.admittime for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.admittime for f in val_features], dtype=torch.long))
+                train_tensors.append(torch.tensor([f.admittime for f in train_features], dtype=torch.long))  #long, float, or other??!
+                val_tensors.append(torch.tensor([f.admittime for f in val_features], dtype=torch.long))       #long, float, or other??!
                 featurePositionDict["admittime"] = positionIdx
                 positionIdx+=1
             if "daystonextadmit" in args.additional_features:
-                train_tensors.append(torch.tensor([f.daystonextadmit for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.daystonextadmit for f in val_features], dtype=torch.long))
+                train_tensors.append(torch.tensor([f.daystonextadmit for f in train_features], dtype=torch.float))
+                val_tensors.append(torch.tensor([f.daystonextadmit for f in val_features], dtype=torch.float))
                 featurePositionDict["daystonextadmit"] = positionIdx
                 positionIdx+=1
             if "duration"  in args.additional_features:
-                train_tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.duration for f in val_features], dtype=torch.long))
+                train_tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.float))
+                val_tensors.append(torch.tensor([f.duration for f in val_features], dtype=torch.float))
                 featurePositionDict["duration"] = positionIdx
                 positionIdx+=1
             if "diag_icd9" in args.additional_features:
@@ -549,15 +549,15 @@ def main():
         
         if args.additional_features is not None:
             if "admittime" in args.additional_features:
-                tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long))
+                tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long)) #long, float, or other??!
                 featurePositionDict["admittime"] = positionIdx
                 positionIdx+=1
             if "daystonextadmit" in args.additional_features:
-                tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.long))
+                tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
                 featurePositionDict["daystonextadmit"] = positionIdx
                 positionIdx+=1
             if "duration"  in args.additional_features:
-                tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.long))
+                tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.float))
                 featurePositionDict["duration"] = positionIdx
                 positionIdx+=1
             if "diag_icd9" in args.additional_features:
