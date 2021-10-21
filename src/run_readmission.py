@@ -135,11 +135,11 @@ def main():
                         default=3.0,
                         type=float,
                         help="Total number of training epochs to perform.")
-    # parser.add_argument("--warmup_proportion",
-    #                     default=0.1,
-    #                     type=float,
-    #                     help="Proportion of training to perform linear learning rate warmup for. "
-    #                          "E.g., 0.1 = 10%% of training.")
+    parser.add_argument("--warmup_proportion",
+                        default=0.1,
+                        type=float,
+                        help="Proportion of training to perform linear learning rate warmup for. "
+                             "E.g., 0.1 = 10%% of training.")
     parser.add_argument("--no_cuda",
                         default=False,
                         action='store_true',
@@ -185,6 +185,10 @@ def main():
                         default=False,
                         action='store_true',
                         help="Whether to freeze parameters from BERT layers or not. When frozen, these are not updated during model training.")
+    parser.add_argument('--early_stop',
+                        default=False,
+                        action='store_true',
+                        help="Save a model checkpoint using early stopping to prevent the saving of overfiting models.")
 
     args = parser.parse_args()
     
@@ -276,14 +280,14 @@ def main():
     global_step_check=0
     train_loss_history=[]
     
-    validation_loss=100000
+    min_validation_loss=100000
     val_loss_history=[]
         
     if args.do_train:
 
         #if freeze_bert:
         for name, param in model.named_parameters():
-            if name.startswith("bert"):
+            if name.startswith("bert"): # classifier.weight; classifier.bias
                 param.requires_grad = False
 
         # Prepare optimizer
@@ -375,7 +379,7 @@ def main():
 
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
-            val_sampler   = RandomSampler(val_data)
+            val_sampler   = SequentialSampler(val_data)
         else:
             train_sampler = DistributedSampler(train_data)
             val_sampler = DistributedSampler(val_data)
@@ -389,6 +393,10 @@ def main():
                                     num_epochs=args.num_train_epochs,
                                     num_batches_per_epoch=len(train_dataloader)
                                    )
+        # optimizer = BertAdam(optimizer_grouped_parameters,
+        #                      lr=args.learning_rate,
+        #                      warmup=args.warmup_proportion,
+        #                      t_total=num_train_steps)
                                            
         model.train()
         for epo in trange(int(args.num_train_epochs), desc="Epoch"):
@@ -500,11 +508,18 @@ def main():
 
             wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": rp80}) 
             
+            ## "Early stopping" mechanism where validation loss is used to save model checkpoints
+            if args.early_stop:
+                if val_loss < min_validation_loss:
+                    min_validation_loss = val_loss
+                    checkpoint_model_state = deepcopy(model.state_dict()) #must save a deepcopy, otherwise this is a reference to the state dict that keeps getting updated
+            
             ## Setting model back in training mode:
             model.train()
             
         string = os.path.join(args.output_dir, 'pytorch_model_new_'+args.readmission_mode+'.bin')
-        torch.save(model.state_dict(), string)
+        if not args.early_stop: checkpoint_model_state = model.state_dict()
+        torch.save(checkpoint_model_state, string)
 
         fig1 = plt.figure()
         plt.plot(train_loss_history)

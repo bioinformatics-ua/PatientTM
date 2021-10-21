@@ -113,9 +113,9 @@ class DataProcessor(object):
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
-        lines=zip(file.HADM_ID,file.Label,file.TEXT)
-        # lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DURATION,file.DIAG_ICD9,\
-        #           file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.Label,file.TEXT)
+        # lines=zip(file.HADM_ID,file.Label,file.TEXT)
+        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DURATION,file.DIAG_ICD9,\
+                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.Label,file.TEXT)
         return lines
 
 class readmissionProcessor(DataProcessor):
@@ -194,10 +194,10 @@ class readmissionProcessor(DataProcessor):
                 features["proc_ccs"] = None
                 features["ndc"] = None
 
-            # features["label"] = str(int(line[10]))
-            # features["text_a"] = line[11]
-            features["label"] = str(int(line[1]))
-            features["text_a"] = line[2]
+            features["label"] = str(int(line[10]))
+            features["text_a"] = line[11]
+            # features["label"] = str(int(line[1]))
+            # features["text_a"] = line[2]
 
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))
@@ -333,7 +333,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         #print (example.label)
         label_id = label_map[example.label]
 
-        if ex_index < 5:
+        if ex_index < 3:
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
             logger.info("tokens: %s" % " ".join(
