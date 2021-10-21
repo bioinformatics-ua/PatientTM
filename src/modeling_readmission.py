@@ -1079,6 +1079,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
         if additionalFeatures is not None:
             if "admittime" in additionalFeatures:
                 self.admittime_dense =  nn.Linear(1, config.admittime_hidden_size)
+### METER ACTIVATION FUNCTIONS ENTRE LINEAR E LAYERNORMS
                 self.admittime_layernorm_1 = LayerNorm(config.admittime_hidden_size)
                 self.admittime_dropout_1 = nn.Dropout(config.hidden_dropout_prob)
             if "daystonextadmit" in additionalFeatures:
