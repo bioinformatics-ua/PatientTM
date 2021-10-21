@@ -25,6 +25,7 @@ import argparse
 import random
 import pandas as pd
 import numpy as np
+from copy import deepcopy
 from tqdm import trange, tqdm
 from datetime import datetime
 
