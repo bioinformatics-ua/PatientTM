@@ -7,6 +7,7 @@ import sys
 import matplotlib.pyplot as plt
 import json
 
+filePrefixMapping = {"D":"1", "DE":"2", "DV":"3", "P":"4"}
 
 
 # def featureToIdx(features):
@@ -20,23 +21,13 @@ import json
 #         feature2idx[entry] = i
 #     return feature2idx
 
-def featureToIdx_original(features):
+def featureToIdx(features):
     feature2idx = {}
     feature2idx[int(0)] = 0 #will be used to mask padding "codes" in the model
     idx=1
     for entry in features:
         print(idx, entry)
         feature2idx[int(entry)] = idx
-        idx+=1
-    return feature2idx
-
-def featureToIdx(features):
-    feature2idx = {}
-    feature2idx["0"] = 0 #will be used to mask padding "codes" in the model
-    idx=1
-    for entry in features:
-        print(idx, entry)
-        feature2idx[entry] = idx
         idx+=1
     return feature2idx
 
@@ -63,45 +54,107 @@ def countCodesPerType(Icd9CcsMap):
     print("Number of Diagnosis CCS codes in map: {}.".format(len(set(diagDict.values()))))
     print("Number of Procedure ICD9 codes in map: {}.".format(len(procDict.keys())))
     print("Number of Procedure CCS codes in map: {}.".format(len(set(procDict.values()))))
+    intersectedCodes=0
+    for ccs in set(diagDict.values()):
+        if ccs in set(procDict.values()):
+            intersectedCodes+=1
+    print("Number of CCS code intersections in map: {}.".format(intersectedCodes))
+    print("Number of distinct CCS codes: {}.".format(len(set(diagDict.values()).union(set(procDict.values())))))
 
 
+# ## SINCE WE DECIDED TO USE ALL CODES IN THE NETWORK ARCHITECTURE, THIS DISREGARDS THE SEPARATION OF USED CODES
+# def map_ICD9_to_CCS(pandasDataFrame):
+#     icd9TOCCS_Map = pickle.load(open('./icd9_to_ccs_dict.pkl','rb'))
+#     adjustedMap = {}
+#     for key, value in icd9TOCCS_Map.items():
+#         if key.startswith("DE"):   adjustedMap[key.replace('DE', filePrefixMapping["DE"])] = value
+#         elif key.startswith("DV"): adjustedMap[key.replace('DV', filePrefixMapping["DV"])] = value
+#         elif key.startswith("D"):  adjustedMap[key.replace('D',  filePrefixMapping["D"])]  = value
+#         elif key.startswith("P"):  adjustedMap[key.replace('P', filePrefixMapping["P"])]   = value
+#
+#     mappedCCSList = []
+#     unmapped=0
+#     mapped=0
+#     icd9Set = set(adjustedMap.keys())
+#     for (hadm_id, ICD9s_List) in pandasDataFrame.values:
+#         tempCodeList = []
+#         for ICD9 in ICD9s_List:
+#             icd9Set.add(ICD9)
+#             while (len(ICD9) < 6): ICD9 += ' '  #pad right white spaces because the CCS mapping uses this pattern
+#             try:
+#                 CCS_code = adjustedMap[ICD9]
+#                 tempCodeList.append(CCS_code)
+#                 mapped+=1
+#             except KeyError:
+#                 tempCodeList.append("-1    ") #Used for NaN entries
+#                 unmapped+=1
+#         tempCodeList = list(map(lambda x: x.replace("      ","-1    ") if x == "      " else x, tempCodeList))
+#         mappedCCSList.append(tempCodeList)
+#
+#     # This "-1" is necessary because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
+#     # These empty entries will be processed as "-1" entries later on, before being fed to the model as input
+#     icd9Set.add ("-1")
+#     if not os.path.isfile("./data/extended/Icd9ToIdx.json"):
+#         icd9ToIdx = featureToIdx(icd9Set)
+#         writeToJSON(icd9ToIdx, "./data/extended/Icd9ToIdx.json")
+#
+#     ccsSet = set(adjustedMap.values())
+#     ccsSet.add("-1    ") #Adjusting the set to convert "     " to "-1    " which can be converted to integer type (" " cannot be converted to integer)
+#     ccsSet.remove("      ")
+#     if not os.path.isfile("./data/extended/CCSToIdx.json"):
+#         ccsToIdx = featureToIdx(ccsSet)
+#         writeToJSON(ccsToIdx, "./data/extended/CCSToIdx.json")
+#
+#     print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(icd9Set)))
+#     print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
+#     print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
+#     return mappedCCSList
+
+## SINCE WE DECIDED TO USE ALL CODES IN THE NETWORK ARCHITECTURE, THIS DISREGARDS THE SEPARATION OF USED CODES
 def map_ICD9_to_CCS(pandasDataFrame, baseCodeSet=None, writeIcdIdx=False):
-    with open('../data/extended/ICDandCCSmappings/merged_icdccs_codes.json','r') as file:
-        icd9TOCCS_Map = json.load(file)
+    icd9TOCCS_Map = pickle.load(open('../data/icd9_to_ccs_dict.pkl','rb'))
     if baseCodeSet is None:
         baseCodeSet = set()
+    adjustedMap = {}
+    for key, value in icd9TOCCS_Map.items():
+        if key.startswith("DE"):   adjustedMap[key.replace('DE', filePrefixMapping["DE"])] = value
+        elif key.startswith("DV"): adjustedMap[key.replace('DV', filePrefixMapping["DV"])] = value
+        elif key.startswith("D"):  adjustedMap[key.replace('D',  filePrefixMapping["D"])]  = value
+        elif key.startswith("P"):  adjustedMap[key.replace('P', filePrefixMapping["P"])]   = value
+
     mappedCCSList = []
     unmapped=0
     mapped=0
-    dfDict = pandasDataFrame.to_dict('records')
-    for row in dfDict:
-        hadm_id = row["HADM_ID"]
-        ICD9s_List = row["ICD9_CODE"]
+    for (hadm_id, ICD9s_List) in pandasDataFrame.values:
         tempCodeList = []
         for ICD9 in ICD9s_List:
             baseCodeSet.add(ICD9)
+            while (len(ICD9) < 6): ICD9 += ' '  #pad right white spaces because the CCS mapping uses this pattern
             try:
-                CCS_code = icd9TOCCS_Map[ICD9]
+                CCS_code = adjustedMap[ICD9]
                 tempCodeList.append(CCS_code)
                 mapped+=1
             except KeyError:
-                tempCodeList.append("-1") #Used for NaN entries
+                tempCodeList.append("-1    ") #Used for NaN entries
                 unmapped+=1
+        tempCodeList = list(map(lambda x: x.replace("      ","-1    ") if x == "      " else x, tempCodeList))
+        mappedCCSList.append(tempCodeList)
 
     # This "-1" is necessary because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
     # These empty entries will be processed as "-1" entries later on, before being fed to the model as input
-    icd9Set=set(icd9TOCCS_Map.keys())
+    icd9Set=set(adjustedMap.keys())
     icd9Set.add("-1")
     baseCodeSet.update(icd9Set)
     if writeIcdIdx:
-        baseCodeSet = sorted({entry.strip() for entry in baseCodeSet})
+        baseCodeSet = sorted({int(entry.strip()) for entry in baseCodeSet})
         icd9ToIdx = featureToIdx(baseCodeSet)
         writeToJSON(icd9ToIdx, "../data/extended/Icd9ToIdx.json")
 
-    ccsSet = set(icd9TOCCS_Map.values())
-    ccsSet.add("-1")
+    ccsSet = set(adjustedMap.values())
+    ccsSet.add("-1    ") #Adjusting the set to convert "     " to "-1    " which can be converted to integer type (" " cannot be converted to integer)
+    ccsSet.remove("      ")
     if not os.path.isfile("../data/extended/CCSToIdx.json"):
-        ccsSet = sorted({entry.strip() for entry in ccsSet})
+        ccsSet = sorted({int(entry.strip()) for entry in ccsSet})
         ccsToIdx = featureToIdx(ccsSet)
         writeToJSON(ccsToIdx, "../data/extended/CCSToIdx.json")
 
@@ -146,7 +199,7 @@ def get_unique_ordered_medication(pandasDataFrame):
                 unmapped+=1
         pandasDataFrame.at[index, column] = unique_medication
     RxNormNdcs.add(-1)
-    ndcsToIdx = featureToIdx_original(RxNormNdcs)
+    ndcsToIdx = featureToIdx(RxNormNdcs)
     writeToJSON(ndcsToIdx, "../data/extended/NDCToIdx.json")
     # print("mapped: {}, unmapped: {}".format(mapped, unmapped))
     # print(counter)
@@ -164,25 +217,15 @@ df_adm = df_adm.reset_index(drop = True)
 df_adm['NEXT_ADMITTIME'] = df_adm.groupby('SUBJECT_ID').ADMITTIME.shift(-1)
 df_adm['NEXT_ADMISSION_TYPE'] = df_adm.groupby('SUBJECT_ID').ADMISSION_TYPE.shift(-1)
 
-df_adm['PREV_DISCHTIME'] = df_adm.groupby('SUBJECT_ID').DISCHTIME.shift(1)
-df_adm['PREV_ADMISSION_TYPE'] = df_adm.groupby('SUBJECT_ID').ADMISSION_TYPE.shift(1)
-
 rows = df_adm.NEXT_ADMISSION_TYPE == 'ELECTIVE'
 df_adm.loc[rows,'NEXT_ADMITTIME'] = pd.NaT
 df_adm.loc[rows,'NEXT_ADMISSION_TYPE'] = np.NaN
-
-rows = df_adm.PREV_ADMISSION_TYPE == 'ELECTIVE'
-df_adm.loc[rows,'PREV_DISCHTIME'] = pd.NaT
-df_adm.loc[rows,'PREV_ADMISSION_TYPE'] = np.NaN
 
 df_adm = df_adm.sort_values(['SUBJECT_ID','ADMITTIME'])
 
 #When we filter out the "ELECTIVE", we need to correct the next admit time for these admissions since there might be 'emergency' next admit after "ELECTIVE"
 df_adm[['NEXT_ADMITTIME','NEXT_ADMISSION_TYPE']] = df_adm.groupby(['SUBJECT_ID'])[['NEXT_ADMITTIME','NEXT_ADMISSION_TYPE']].fillna(method = 'bfill')
-df_adm['DAYS_NEXT_ADMIT'] = (df_adm.NEXT_ADMITTIME - df_adm.DISCHTIME).dt.total_seconds()/(24*60*60)
-df_adm[['PREV_DISCHTIME','PREV_ADMISSION_TYPE']] = df_adm.groupby(['SUBJECT_ID'])[['PREV_DISCHTIME','PREV_ADMISSION_TYPE']].fillna(method = 'bfill')
-df_adm['DAYS_PREV_ADMIT'] = (df_adm.ADMITTIME - df_adm.PREV_DISCHTIME).dt.total_seconds()/(24*60*60)
-
+df_adm['DAYS_NEXT_ADMIT']=  (df_adm.NEXT_ADMITTIME - df_adm.DISCHTIME).dt.total_seconds()/(24*60*60)
 df_adm['OUTPUT_LABEL'] = (df_adm.DAYS_NEXT_ADMIT < 30).astype('int')
 ### filter out newborn and death
 df_adm = df_adm[df_adm['ADMISSION_TYPE']!='NEWBORN']
@@ -194,7 +237,12 @@ df_diagnoses = pd.read_csv('/backup/mimiciii/DIAGNOSES_ICD.csv.gz', compression=
 df_diagnoses = df_diagnoses[df_diagnoses.ICD9_CODE.notna()]
 df_diagnoses = df_diagnoses.sort_values(['HADM_ID','SEQ_NUM'], ascending=True)
 df_diagnoses = df_diagnoses.reset_index(drop = True)
-df_diagnoses.ICD9_CODE = "D_" + df_diagnoses.ICD9_CODE.astype(str)
+
+#df_diagnoses.loc[:, 'ICD9_CODE'] = 'D' + df_diagnoses['ICD9_CODE'].astype(str)
+###THE PREVIOUS ENCODING WAS REMOVED AND CHANGED INTO AN INTEGER MAPPING, AS USED BELOW, AS INT WILL TAKE HALF THE MEMORY SPACE
+df_diagnoses.ICD9_CODE = filePrefixMapping["D"] + df_diagnoses.ICD9_CODE.astype(str)
+df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1E', filePrefixMapping["DE"])
+df_diagnoses.ICD9_CODE = df_diagnoses.ICD9_CODE.str.replace('1V', filePrefixMapping["DV"])
 df_diag_listing = df_diagnoses.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_diag_listing = df_diag_listing.reset_index()
 diagnosesCCS, baseIcdCodeSet = map_ICD9_to_CCS(df_diag_listing)
@@ -210,7 +258,8 @@ df_adm = df_adm.rename(columns={'ICD9_CODE': 'DIAG_ICD9'})
 df_procedures = pd.read_csv('/backup/mimiciii/PROCEDURES_ICD.csv.gz', compression="gzip")
 df_procedures = df_procedures.sort_values(['HADM_ID','SEQ_NUM'], ascending=True)
 df_procedures = df_procedures.reset_index(drop = True)
-df_procedures.ICD9_CODE = "P_" + df_procedures.ICD9_CODE.astype(str)
+#df_procedures.loc[:, 'ICD9_CODE'] = 'P' + df_procedures['ICD9_CODE'].astype(str) ## SAME AS BEFORE, CHANGED TO INTEGER MAPPING
+df_procedures.ICD9_CODE = filePrefixMapping["P"] + df_procedures.ICD9_CODE.astype(str)
 df_proc_listing = df_procedures.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_proc_listing = df_proc_listing.reset_index()
 proceduresCCS, _ = map_ICD9_to_CCS(df_proc_listing, baseCodeSet=baseIcdCodeSet, writeIcdIdx=True)
@@ -240,7 +289,7 @@ df_adm = pd.merge(df_adm,
 
 df_notes = pd.read_csv('/backup/mimiciii/NOTEEVENTS.csv.gz', compression="gzip")
 df_notes = df_notes.sort_values(by=['SUBJECT_ID','HADM_ID','CHARTDATE'])
-df_adm_notes = pd.merge(df_adm[['SUBJECT_ID','HADM_ID','ADMITTIME','DISCHTIME','DAYS_NEXT_ADMIT',"DAYS_PREV_ADMIT",'NEXT_ADMITTIME','ADMISSION_TYPE',
+df_adm_notes = pd.merge(df_adm[['SUBJECT_ID','HADM_ID','ADMITTIME','DISCHTIME','DAYS_NEXT_ADMIT','NEXT_ADMITTIME','ADMISSION_TYPE',
                                 'DEATHTIME','OUTPUT_LABEL','DURATION','DIAG_ICD9','DIAG_CCS','PROC_ICD9','PROC_CCS','NDC']],
                         df_notes[['SUBJECT_ID','HADM_ID','CHARTDATE','CHARTTIME','TEXT','CATEGORY']],
                         on = ['SUBJECT_ID','HADM_ID'],
@@ -271,7 +320,6 @@ def less_n_days_data (df_adm_notes, n):
     df_concat['SUBJECT_ID'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].SUBJECT_ID.values[0])
     df_concat['ADMITTIME'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].ADMITTIME.values[0])
     df_concat['DAYS_NEXT_ADMIT'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DAYS_NEXT_ADMIT.values[0])
-    df_concat['DAYS_PREV_ADMIT'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DAYS_PREV_ADMIT.values[0])
     df_concat['DURATION'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DURATION.values[0])
     df_concat['DIAG_ICD9'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DIAG_ICD9.values[0])
     df_concat['DIAG_CCS'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DIAG_CCS.values[0])
@@ -309,26 +357,24 @@ def preprocessing(df_less_n):
     from tqdm import tqdm
     df_len = len(df_less_n)
     #want=pd.DataFrame({'ID':[],'DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'TEXT':[],'Label':[]})
-    want=pd.DataFrame({'HADM_ID':[],'SUBJECT_ID':[],'ADMITTIME':[],'DAYS_NEXT_ADMIT':[],'DAYS_PREV_ADMIT':[],'DURATION':[],'DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'TEXT':[],'Label':[]})
+    want=pd.DataFrame({'HADM_ID':[],'SUBJECT_ID':[],'ADMITTIME':[],'DAYS_NEXT_ADMIT':[],'DURATION':[],'DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'TEXT':[],'Label':[]})
     for i in tqdm(range(df_len)):
         x=df_less_n.TEXT.iloc[i].split()
         n=int(len(x)/318)
         for j in range(n):
             want=want.append({'TEXT':' '.join(x[j*318:(j+1)*318]),'Label':df_less_n.OUTPUT_LABEL.iloc[i],'HADM_ID':df_less_n.HADM_ID.iloc[i],
                               'SUBJECT_ID':df_less_n.SUBJECT_ID.iloc[i],'ADMITTIME':df_less_n.ADMITTIME.iloc[i],
-                              'DAYS_NEXT_ADMIT':df_less_n.DAYS_NEXT_ADMIT.iloc[i], 'DAYS_PREV_ADMIT':df_less_n.DAYS_PREV_ADMIT.iloc[i], 
-                              'DURATION':df_less_n.DURATION.iloc[i], 'NDC':df_less_n.NDC.iloc[i]}, 
+                              'DAYS_NEXT_ADMIT':df_less_n.DAYS_NEXT_ADMIT.iloc[i], 'DURATION':df_less_n.DURATION.iloc[i],
                               'DIAG_ICD9':df_less_n.DIAG_ICD9.iloc[i],'DIAG_CCS':df_less_n.DIAG_CCS.iloc[i],
-                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i], ignore_index=True)
-                              
+                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i],
+                              'NDC':df_less_n.NDC.iloc[i]},ignore_index=True)
         if len(x)%318>10:
             want=want.append({'TEXT':' '.join(x[-(len(x)%318):]),'Label':df_less_n.OUTPUT_LABEL.iloc[i],'HADM_ID':df_less_n.HADM_ID.iloc[i],
                               'SUBJECT_ID':df_less_n.SUBJECT_ID.iloc[i],'ADMITTIME':df_less_n.ADMITTIME.iloc[i],
-                              'DAYS_NEXT_ADMIT':df_less_n.DAYS_NEXT_ADMIT.iloc[i], 'DAYS_PREV_ADMIT':df_less_n.DAYS_PREV_ADMIT.iloc[i], 
-                              'DURATION':df_less_n.DURATION.iloc[i], 'NDC':df_less_n.NDC.iloc[i]},
+                              'DAYS_NEXT_ADMIT':df_less_n.DAYS_NEXT_ADMIT.iloc[i], 'DURATION':df_less_n.DURATION.iloc[i],
                               'DIAG_ICD9':df_less_n.DIAG_ICD9.iloc[i],'DIAG_CCS':df_less_n.DIAG_CCS.iloc[i],
-                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i], ignore_index=True)
-                              
+                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i],
+                              'NDC':df_less_n.NDC.iloc[i]},ignore_index=True)
     return want
 
 df_discharge = preprocessing(df_discharge)
@@ -399,13 +445,13 @@ discharge_train_snippets.Label.value_counts()
 print("BEGINNING SAVING TO CSV")
 
 discharge_train_snippets.to_csv('../data/extended/discharge/train.csv',
-                                columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                                columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 discharge_val.to_csv('../data/extended/discharge/val.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 discharge_test.to_csv('../data/extended/discharge/test.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
 ### for Early notes experiment: we only need to find training set for 3 days, then we can test
@@ -422,12 +468,12 @@ early_train_snippets = pd.concat([df_less_3[df_less_3.HADM_ID.isin(not_readmit_I
 #shuffle
 early_train_snippets = early_train_snippets.sample(frac=1, random_state=1).reset_index(drop=True)
 early_train_snippets.to_csv('../data/extended/3days/train.csv',
-                            columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                            columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
 early_val = df_less_3[df_less_3.HADM_ID.isin(val_id_label.id)]
 early_val.to_csv('../data/extended/3days/val.csv',
-                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
 # we want to test on admissions that are not discharged already. So for less than 3 days of notes experiment,
@@ -437,7 +483,7 @@ test_actionable_id_label = test_id_label[test_id_label.id.isin(actionable_ID_3da
 early_test = df_less_3[df_less_3.HADM_ID.isin(test_actionable_id_label.id)]
 
 early_test.to_csv('../data/extended/3days/test.csv',
-                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
 
 #for 2 days notes, we only obtain test set. Since the model parameters are tuned on the val set of 3 days
@@ -449,5 +495,5 @@ test_actionable_id_label_2days = test_id_label[test_id_label.id.isin(actionable_
 early_test_2days = df_less_2[df_less_2.HADM_ID.isin(test_actionable_id_label_2days.id)]
 
 early_test_2days.to_csv('../data/extended/2days/test.csv',
-                        columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                        columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
 
