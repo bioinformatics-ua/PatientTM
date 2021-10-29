@@ -11,6 +11,7 @@ results/result_early/
 model/discharge_readmission/pytorch_model.bin
 model/early_readmission/pytorch_model.bin
 model/pretraining/pytorch_model.bin
+external_repos/UMLS/2020AA/META/
 
 # C extensions
 *.so
