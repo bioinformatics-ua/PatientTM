@@ -28,29 +28,29 @@ class InputExample(object):
         self.text_b = text_b
         self.admittime = None
         self.daystonextadmit = None
+        self.daystoprevadmit = None
         self.duration = None
         self.diag_icd9 = None
+        self.small_diag_icd9 = None
         self.diag_ccs = None
         self.proc_icd9 = None
+        self.small_proc_icd9 = None
         self.proc_ccs = None
         self.ndc = None
+        self.cui = None
 
-        if features["admittime"] is not None:
-            self.admittime = features["admittime"]
-        if features["daystonextadmit"] is not None:
-            self.daystonextadmit = features["daystonextadmit"]
-        if features["duration"] is not None:
-            self.duration = features["duration"]
-        if features["diag_icd9"] is not None:
-            self.diag_icd9 = features["diag_icd9"]
-        if features["diag_ccs"] is not None:
-            self.diag_ccs = features["diag_ccs"]
-        if features["proc_icd9"] is not None:
-            self.proc_icd9 = features["proc_icd9"]
-        if features["proc_ccs"] is not None:
-            self.proc_ccs = features["proc_ccs"]
-        if features["ndc"] is not None:
-            self.ndc = features["ndc"]
+        if features["admittime"] is not None:       self.admittime = features["admittime"]
+        if features["daystonextadmit"] is not None: self.daystonextadmit = features["daystonextadmit"]
+        if features["daystoprevadmit"] is not None: self.daystoprevadmit = features["daystoprevadmit"]
+        if features["duration"] is not None:        self.duration = features["duration"]
+        if features["diag_icd9"] is not None:       self.diag_icd9 = features["diag_icd9"]
+        if features["small_diag_icd9"] is not None: self.small_diag_icd9 = features["small_diag_icd9"]
+        if features["diag_ccs"] is not None:        self.diag_ccs = features["diag_ccs"]
+        if features["proc_icd9"] is not None:       self.proc_icd9 = features["proc_icd9"]
+        if features["small_proc_icd9"] is not None: self.small_proc_icd9 = features["small_proc_icd9"]       
+        if features["proc_ccs"] is not None:        self.proc_ccs = features["proc_ccs"]
+        if features["ndc"] is not None:             self.ndc = features["ndc"]
+        if features["cui"] is not None:             self.cui = features["cui"]
 
 
 class InputFeatures(object):
@@ -61,23 +61,20 @@ class InputFeatures(object):
         self.input_mask = features["input_mask"]
         self.segment_ids = features["segment_ids"]
         self.label_id = features["label_id"]
-
-        if "admittime" in features.keys():
-            self.admittime = features["admittime"]
-        if "daystonextadmit" in features.keys():
-            self.daystonextadmit = features["daystonextadmit"]
-        if "duration" in features.keys():
-            self.duration = features["duration"]
-        if "diag_icd9" in features.keys():
-            self.diag_icd9 = features["diag_icd9"]
-        if "diag_ccs" in features.keys():
-            self.diag_ccs = features["diag_ccs"]
-        if "proc_icd9" in features.keys():
-            self.proc_icd9 = features["proc_icd9"]
-        if "proc_ccs" in features.keys():
-            self.proc_ccs = features["proc_ccs"]
-        if "ndc" in features.keys():
-            self.ndc = features["ndc"]
+        
+        
+        if "admittime" in features.keys():       self.admittime = features["admittime"]
+        if "daystonextadmit" in features.keys(): self.daystonextadmit = features["daystonextadmit"]
+        if "daystoprevadmit" in features.keys(): self.daystoprevadmit = features["daystoprevadmit"]
+        if "duration" in features.keys():        self.duration = features["duration"]
+        if "diag_icd9" in features.keys():       self.diag_icd9 = features["diag_icd9"]
+        if "small_diag_icd9" in features.keys(): self.small_diag_icd9 = features["small_diag_icd9"]
+        if "diag_ccs" in features.keys():        self.diag_ccs = features["diag_ccs"]
+        if "proc_icd9" in features.keys():       self.proc_icd9 = features["proc_icd9"]
+        if "small_proc_icd9" in features.keys(): self.small_proc_icd9 = features["small_proc_icd9"]  
+        if "proc_ccs" in features.keys():        self.proc_ccs = features["proc_ccs"]
+        if "ndc" in features.keys():             self.ndc = features["ndc"]
+        if "cui" in features.keys():             self.cui = features["cui"]
 
 
 class DataProcessor(object):
@@ -113,9 +110,8 @@ class DataProcessor(object):
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
-        # lines=zip(file.HADM_ID,file.Label,file.TEXT)
-        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DURATION,file.DIAG_ICD9,\
-                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.Label,file.TEXT)
+        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
+                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.Label,file.TEXT)
         return lines
 
 class readmissionProcessor(DataProcessor):
@@ -144,59 +140,90 @@ class readmissionProcessor(DataProcessor):
             guid = "%s-%s" % (set_type, i)
             features = dict()
             if additionalFeatures is not None:
-                if "admittime" in additionalFeatures: features["admittime"] = line[2]
+                if "admittime" in additionalFeatures: features["admittime"] = [line[2]]
                 else: features["admittime"] = None
 
                 if "daystonextadmit" in additionalFeatures:
                     features["daystonextadmit"] = line[3]
-                    if pd.isna(features["daystonextadmit"]): features["daystonextadmit"] = -1
-                    else: features["daystonextadmit"] = float(line[3])
+                    if pd.isna(features["daystonextadmit"]): features["daystonextadmit"] = [-1]
+                    else: features["daystonextadmit"] = [float(line[3])]
                 else: features["daystonextadmit"] = None
+                
+                if "daystoprevadmit" in additionalFeatures:
+                    features["daystoprevadmit"] = line[4]
+                    if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [-1]
+                    else: features["daystoprevadmit"] = [float(line[4])]
+                else: features["daystoprevadmit"] = None
 
-                if "duration"  in additionalFeatures: features["duration"] = float(line[4])
+                if "duration"  in additionalFeatures: features["duration"] = [float(line[5])]
                 else: features["duration"] = None
 
                 if "diag_icd9" in additionalFeatures:
-                    features["diag_icd9"] = line[5]
-                    if pd.isna(features["diag_icd9"]): features["diag_icd9"] = [-1]
-                    else: features["diag_icd9"] = [int(x) for x in processString(line[5],charsToRemove = "[]\',").split(' ')]
+                    features["diag_icd9"] = line[6]
+                    if pd.isna(features["diag_icd9"]): features["diag_icd9"] = [0]
+                    else: features["diag_icd9"] = [int(x) for x in processString(line[6],charsToRemove = "[]\',").split(' ')]
                 else: features["diag_icd9"] = None
 
                 if "diag_ccs"  in additionalFeatures:
-                    features["diag_ccs"] = line[6]
-                    if pd.isna(features["diag_ccs"]): features["diag_ccs"] = [-1]
-                    else: features["diag_ccs"] = [int(x) for x in processString(line[6],charsToRemove = "[]\' ").split(',')]
+                    features["diag_ccs"] = line[7]
+                    if pd.isna(features["diag_ccs"]): features["diag_ccs"] = [0]
+                    else: features["diag_ccs"] = [int(x) for x in processString(line[7],charsToRemove = "[]\' ").split(',')]
                 else: features["diag_ccs"] = None
 
                 if "proc_icd9" in additionalFeatures:
-                    features["proc_icd9"] = line[7]
-                    if pd.isna(features["proc_icd9"]): features["proc_icd9"] = [-1]
-                    else: features["proc_icd9"] = [int(x) for x in processString(line[7],charsToRemove = "[]\',").split(' ')]
+                    features["proc_icd9"] = line[8]
+                    if pd.isna(features["proc_icd9"]): features["proc_icd9"] = [0]
+                    else: features["proc_icd9"] = [int(x) for x in processString(line[8],charsToRemove = "[]\',").split(' ')]
                 else: features["proc_icd9"] = None
 
                 if "proc_ccs"  in additionalFeatures:
-                    features["proc_ccs"] = line[8]
-                    if pd.isna(features["proc_ccs"]): features["proc_ccs"] = [-1]
-                    else: features["proc_ccs"] = [int(x) for x in processString(line[8],charsToRemove = "[]\' ").split(',')]
+                    features["proc_ccs"] = line[9]
+                    if pd.isna(features["proc_ccs"]): features["proc_ccs"] = [0]
+                    else: features["proc_ccs"] = [int(x) for x in processString(line[9],charsToRemove = "[]\' ").split(',')]
                 else: features["proc_ccs"] = None
 
                 if "ndc" in additionalFeatures:
-                    features["ndc"] = line[9]
-                    if pd.isna(features["ndc"]): features["ndc"] = [-1]
-                    else: features["ndc"] = [int(x) for x in processString(line[9],charsToRemove = "[]\' ").split(',')]
+                    features["ndc"] = line[10]
+                    if pd.isna(features["ndc"]): features["ndc"] = [0]
+                    else: features["ndc"] = [int(x) for x in processString(line[10],charsToRemove = "[]\' ").split(',')]
                 else: features["ndc"] = None
+                
+                
+                if "small_diag_icd9" in additionalFeatures:
+                    features["small_diag_icd9"] = line[11]
+                    if pd.isna(features["small_diag_icd9"]): features["small_diag_icd9"] = [0]
+                    else: features["small_diag_icd9"] = [int(x) for x in processString(line[11],charsToRemove = "[]\',").split(' ')]
+                else: features["small_diag_icd9"] = None
+                
+                if "small_proc_icd9" in additionalFeatures:
+                    features["small_proc_icd9"] = line[12]
+                    if pd.isna(features["small_proc_icd9"]): features["small_proc_icd9"] = [0]
+                    else: features["small_proc_icd9"] = [int(x) for x in processString(line[12],charsToRemove = "[]\',").split(' ')]
+                else: features["small_proc_icd9"] = None
+                
+                if "cui" in additionalFeatures:
+                    features["cui"] = line[13]
+                    if pd.isna(features["cui"]): features["cui"] = [0]
+                    else: features["cui"] = [int(x) for x in processString(line[13],charsToRemove = "[]\',").split(' ')]
+                else: features["cui"] = None
+                
+                
             else:
                 features["admittime"] = None
                 features["daystonextadmit"] = None
+                features["daystoprevadmit"] = None
                 features["duration"] = None
                 features["diag_icd9"] = None
                 features["diag_ccs"] = None
                 features["proc_icd9"] = None
                 features["proc_ccs"] = None
                 features["ndc"] = None
+                features["small_diag_icd9"] = None
+                features["small_proc_icd9"] = None
+                features["cui"] = None
 
-            features["label"] = str(int(line[10]))
-            features["text_a"] = line[11]
+            features["label"] = str(int(line[14]))
+            features["text_a"] = line[15]
             # features["label"] = str(int(line[1]))
             # features["text_a"] = line[2]
 
@@ -211,19 +238,11 @@ def processString(string, charsToRemove):
 
 
 def convertToIds(feature, idsMappingDict):
-    featureIds=[]
-    # for key in idsMappingDict.keys():
-    #     print(key.__class__)
-    # keys = sorted(idsMappingDict.keys())
-    # for key in keys:
-    #     if key.startswith("6410"):
-    #         print(key)
-        # if int(key) > int(641040025):
-        #     print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
-    for entry in feature:
-        # print(entry)
-        featureIds.append(idsMappingDict[str(entry)])
-    return featureIds
+    # featureIds=[]
+    # for entry in feature:
+    #     featureIds.append(idsMappingDict[str(entry)])
+    # return featureIds
+    return [idsMappingDict[str(entry)] for entry in feature]
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
@@ -248,16 +267,26 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
     if additionalFeatures is not None:
         """Load the mapping dictionaries for additional features, to be used later to convert to ids"""
         if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
-            with open("../data/extended/Icd9ToIdx.json","r") as file:
+            with open("../data/extended/preprocessing/idxFiles/Icd9ToIdx.json","r") as file:
                 icd9MappingDict = json.load(file)
 
         if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
-            with open("../data/extended/CCSToIdx.json","r") as file:
+            with open("../data/extended/preprocessing/idxFiles/CCSToIdx.json","r") as file:
                 ccsMappingDict = json.load(file)
 
         if "ndc" in additionalFeatures:
-            with open("../data/extended/NDCToIdx.json","r") as file:
+            with open("../data/extended/preprocessing/idxFiles/NDCToIdx.json","r") as file:
                 ndcMappingDict = json.load(file)
+                
+                
+                
+        if "small_diag_icd9" in additionalFeatures or "small_proc_icd9" in additionalFeatures:
+            with open("../data/extended/preprocessing/idxFiles/smallIcd9ToIdx.json","r") as file:
+                smallIcd9MappingDict = json.load(file)
+        
+        if "cui" in additionalFeatures:
+            with open("../data/extended/cui_NDCToIdx.json","r") as file:
+                cuiMappingDict = json.load(file)
 
     label_map = {}
     for (i, label) in enumerate(label_list):
@@ -362,6 +391,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         if additionalFeatures is not None:
             if "admittime" in additionalFeatures: feature["admittime"] = example.admittime
             if "daystonextadmit" in additionalFeatures: feature["daystonextadmit"] = example.daystonextadmit
+            if "daystoprevadmit" in additionalFeatures: feature["daystoprevadmit"] = example.daystoprevadmit
             if "duration"  in additionalFeatures: feature["duration"] = example.duration
             if "diag_icd9" in additionalFeatures:
                 feature["diag_icd9"] = convertToIds(example.diag_icd9, icd9MappingDict)
@@ -383,6 +413,19 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
                 feature["ndc"] = convertToIds(example.ndc, ndcMappingDict)
                 while len(feature["ndc"]) < maxLenDict["ndc_maxlen"]:
                     feature["ndc"].append(0)
+                    
+            if "small_diag_icd9" in additionalFeatures:
+                feature["small_diag_icd9"] = convertToIds(example.small_diag_icd9, smallIcd9MappingDict)
+                while len(feature["small_diag_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                    feature["small_diag_icd9"].append(0)
+            if "small_proc_icd9" in additionalFeatures:
+                feature["small_proc_icd9"] = convertToIds(example.small_proc_icd9, smallIcd9MappingDict)
+                while len(feature["small_proc_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                    feature["small_proc_icd9"].append(0)
+            if "cui" in additionalFeatures:
+                feature["cui"] = convertToIds(example.cui, cuiMappingDict)
+                while len(feature["cui"]) < maxLenDict["cui_maxlen"]:
+                    feature["cui"].append(0)
 
         features.append(InputFeatures(feature))
     return features
