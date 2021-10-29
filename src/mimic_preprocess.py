@@ -20,25 +20,42 @@ import json
 #         feature2idx[entry] = i
 #     return feature2idx
 
-def featureToIdx_original(features):
-    feature2idx = {}
-    feature2idx[int(0)] = 0 #will be used to mask padding "codes" in the model
-    idx=1
-    for entry in features:
-        print(idx, entry)
-        feature2idx[int(entry)] = idx
-        idx+=1
-    return feature2idx
+# def featureToIdx_original(features):
+#     feature2idx = {}
+#     feature2idx[int(0)] = 0 #will be used to mask padding "codes" in the model
+#     idx=1
+#     for entry in features:
+#         print(idx, entry)
+#         feature2idx[int(entry)] = idx
+#         idx+=1
+#     return feature2idx
 
 def featureToIdx(features):
     feature2idx = {}
     feature2idx["0"] = 0 #will be used to mask padding "codes" in the model
     idx=1
     for entry in features:
-        print(idx, entry)
-        feature2idx[entry] = idx
-        idx+=1
+        if entry in feature2idx.keys():
+            pass
+        else:# print(idx, entry)
+            feature2idx[entry] = idx
+            idx+=1
     return feature2idx
+
+
+def getICDlevel1(icd9_code):
+    """
+    This method extracts the first level of hierarchy of an ICD code:
+        - Procedure codes start with P_xxxx and only have 2 digits in the first level so we extract P_xx
+        - Diagnoses codes start with D_ and can have the following formats (1) Exxx (2) Vxx (3) xxx 
+    """
+    if icd9_code.startswith("P"):
+        return icd9_code[:4]
+    elif icd9_code.startswith("D"):
+        if icd9_code.startswith("D_E"):
+            return icd9_code[:6]
+        else:
+            return icd9_code[:5]
 
 
 def writeToJSON(content, filepath):
@@ -64,62 +81,103 @@ def countCodesPerType(Icd9CcsMap):
     print("Number of Procedure ICD9 codes in map: {}.".format(len(procDict.keys())))
     print("Number of Procedure CCS codes in map: {}.".format(len(set(procDict.values()))))
 
+# def map_ICD9_to_CCS(pandasDataFrame):
+#     with open('../data/extended/ICDandCCSmappings/merged_icdccs_codes.json','r') as file:
+#         icd9TOCCS_Map = json.load(file)
+#     mappedCCSList = []
+#     unmapped=0
+#     mapped=0
+#     dfDict = pandasDataFrame.to_dict('records')
+#     for row in dfDict:
+#         hadm_id = row["HADM_ID"]
+#         ICD9s_List = row["ICD9_CODE"]
+#         tempCodeList = []
+#         for ICD9 in ICD9s_List:
+#             try:
+#                 CCS_code = icd9TOCCS_Map[ICD9]
+#                 tempCodeList.append(CCS_code)
+#                 mapped+=1
+#             except KeyError:
+#                 tempCodeList.append("-1") #Used for NaN entries
+#                 unmapped+=1
 
-def map_ICD9_to_CCS(pandasDataFrame, baseCodeSet=None, writeIcdIdx=False):
+#         mappedCCSList.append(tempCodeList)
+
+#     # This "-1" is necessary because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
+#     # These empty entries will be processed as "-1" entries later on, before being fed to the model as input
+#     icd9Set=set(icd9TOCCS_Map.keys())
+#     icd9Set.add("-1")
+#     if not os.path.isfile("../data/extended/Icd9ToIdx.json"):
+#         icd9Set = sorted({entry.strip() for entry in icd9Set})
+#         icd9ToIdx = featureToIdx(icd9Set)
+#         writeToJSON(icd9ToIdx, "../data/extended/Icd9ToIdx.json")
+
+#     ccsSet = set(icd9TOCCS_Map.values())
+#     ccsSet.add("-1")
+#     if not os.path.isfile("../data/extended/CCSToIdx.json"):
+#         ccsSet = sorted({entry.strip() for entry in ccsSet})
+#         ccsToIdx = featureToIdx(ccsSet)
+#         writeToJSON(ccsToIdx, "../data/extended/CCSToIdx.json")
+
+#     print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(icd9Set)))
+#     print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
+#     print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
+#     return mappedCCSList
+
+def map_ICD9_to_CCS(pandasDataFrame):
     with open('../data/extended/ICDandCCSmappings/merged_icdccs_codes.json','r') as file:
         icd9TOCCS_Map = json.load(file)
-    if baseCodeSet is None:
-        baseCodeSet = set()
+    mappedSmallICDList = []
     mappedCCSList = []
     unmapped=0
-    mapped=0
-    dfDict = pandasDataFrame.to_dict('records')
-    for row in dfDict:
-        hadm_id = row["HADM_ID"]
-        ICD9s_List = row["ICD9_CODE"]
-        tempCodeList = []
-        for ICD9 in ICD9s_List:
-            baseCodeSet.add(ICD9)
+    mapped=0  
+    for row in pandasDataFrame.itertuples():
+        tempSmallICDCodeList = []
+        tempCCSCodeList = []
+        for ICD9 in row.ICD9_CODE:
+            smallICD = getICDlevel1(ICD9)
+            if smallICD not in tempSmallICDCodeList: tempSmallICDCodeList.append(smallICD)
             try:
                 CCS_code = icd9TOCCS_Map[ICD9]
-                tempCodeList.append(CCS_code)
+                tempCCSCodeList.append(CCS_code)
                 mapped+=1
             except KeyError:
-                tempCodeList.append("-1") #Used for NaN entries
+    ## This was previously added but we decided to simply not introduce more noise if the map is unsuccessful
+                # tempCCSCodeList.append("0") #Used for NaN entries
                 unmapped+=1
+        mappedSmallICDList.append(tempSmallICDCodeList)
+        mappedCCSList.append(tempCCSCodeList)
+    with open('../data/extended/ICDandCCSmappings/merged_icd_text.json','r') as file:
+        icd9map = json.load(file)
 
-    # This "-1" is necessary because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
-    # These empty entries will be processed as "-1" entries later on, before being fed to the model as input
-    icd9Set=set(icd9TOCCS_Map.keys())
-    icd9Set.add("-1")
-    baseCodeSet.update(icd9Set)
-    if writeIcdIdx:
-        baseCodeSet = sorted({entry.strip() for entry in baseCodeSet})
-        icd9ToIdx = featureToIdx(baseCodeSet)
+    if not os.path.isfile("../data/extended/smallIcd9ToIdx.json"):
+        smallICDset = set()
+        for code in icd9map.keys():
+            smallICDset.add(getICDlevel1(code))
+        smallIcd9ToIdx = featureToIdx(smallICDset)
+        writeToJSON(smallIcd9ToIdx, "../data/extended/smallIcd9ToIdx.json")
+
+    # A "0" is added during featureToIdx because in proc_icd9 there exist empty entries (where no proc_icd9 codes were assigned to the patient)
+    # These empty entries will be processed as "0" entries later on, before being fed to the model as input
+    if not os.path.isfile("../data/extended/Icd9ToIdx.json"):
+        icd9ToIdx = featureToIdx(set(icd9map.keys()))
         writeToJSON(icd9ToIdx, "../data/extended/Icd9ToIdx.json")
 
     ccsSet = set(icd9TOCCS_Map.values())
-    ccsSet.add("-1")
     if not os.path.isfile("../data/extended/CCSToIdx.json"):
-        ccsSet = sorted({entry.strip() for entry in ccsSet})
+        ccsSet = {entry.strip() for entry in ccsSet}
         ccsToIdx = featureToIdx(ccsSet)
         writeToJSON(ccsToIdx, "../data/extended/CCSToIdx.json")
-
-    print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(icd9Set)))
+    print('-Total number (complete set) of ICD9 codes (diag + proc): {}'.format(len(set(icd9map.keys()))))
     print('-Total number (complete set) of CCS codes (diag + proc): {}'.format(len(ccsSet)))
     print("-Total of mapped/unmapped entries {}/{}".format(mapped,unmapped))
-    return mappedCCSList, baseCodeSet
+    return mappedCCSList, mappedSmallICDList
 
 
 def get_unique_ordered_medication(pandasDataFrame):
-    RxNormNdcs = set()
-    with open("../data/extended/ndcsFromUMLS.csv", "r") as file:
-        lines = file.readlines()
-        for line in lines:
-            ndc = line.split('|')
-            ndc = int(ndc[2].strip("\n"))
-            RxNormNdcs.add(ndc)
-        print(len(RxNormNdcs))
+    with open("../data/extended/NDCmappings/ndc_cui_map.json", "r") as file:
+        ndcCuiMap = json.load(file)
+    RxNormNdcs = set(ndcCuiMap.keys())
     mapped=0
     unmapped=0
     if "NDC" in pandasDataFrame.columns.values:
@@ -127,30 +185,38 @@ def get_unique_ordered_medication(pandasDataFrame):
     elif "DRUG" in pandasDataFrame.columns.values:
         column = "DRUG"
     # counter = 0
+    unique_cuis_list = []
     for index in pandasDataFrame.index:
         used_medications = set()
         #unique_medication = [x for x in pandasDataFrame.loc[index, column] if x not in used_medications and (used_medications.add(x) or True)]
         unique_medication = []
+        temp_cuis_list = []
         for value in pandasDataFrame.loc[index, column]:
             if value not in used_medications and (used_medications.add(value) or True):
-                if pd.isna(value) or value==0.0 or value not in RxNormNdcs: #Attention, the last clause leads to codes not appearing in the set
+                if pd.isna(value) or value==0.0 or str(int(value)) not in RxNormNdcs: #Attention, the last clause leads to codes not appearing in the set
                     # if (not pd.isna(value) and not value==0.0):
                     #     print(value)
                     #     counter+=1
-                    value = -1 # Swapping NaNs to a default numerical number that is not used elsewhere
-                unique_medication.append(int(value))
-
-            if (int(value) is not -1) and (int(value) in RxNormNdcs):
+                    value = 0 # Swapping NaNs to a default numerical number that is not used elsewhere
+                if value is not 0: unique_medication.append(str(int(value)))
+            if (int(value) is not 0) and (str(int(value)) in RxNormNdcs):
                 mapped+=1
             else:
                 unmapped+=1
+            try:
+                cui = ndcCuiMap[str(int(value))]
+                if cui not in temp_cuis_list: temp_cuis_list.append(cui)
+            except KeyError:
+                pass
+        unique_cuis_list.append(temp_cuis_list)
         pandasDataFrame.at[index, column] = unique_medication
-    RxNormNdcs.add(-1)
-    ndcsToIdx = featureToIdx_original(RxNormNdcs)
-    writeToJSON(ndcsToIdx, "../data/extended/NDCToIdx.json")
+    ndcsToIdx = featureToIdx(RxNormNdcs)
+    cuisToIdx = featureToIdx(set(ndcCuiMap.values()))
+    if not os.path.isfile("../data/extended/NDCToIdx.json"): writeToJSON(ndcsToIdx, "../data/extended/NDCToIdx.json")
+    if not os.path.isfile("../data/extended/cui_NDCToIdx.json"): writeToJSON(cuisToIdx, "../data/extended/cui_NDCToIdx.json")
     # print("mapped: {}, unmapped: {}".format(mapped, unmapped))
     # print(counter)
-    return pandasDataFrame
+    return pandasDataFrame, unique_cuis_list
 
 
 
@@ -197,11 +263,12 @@ df_diagnoses = df_diagnoses.reset_index(drop = True)
 df_diagnoses.ICD9_CODE = "D_" + df_diagnoses.ICD9_CODE.astype(str)
 df_diag_listing = df_diagnoses.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_diag_listing = df_diag_listing.reset_index()
-diagnosesCCS, baseIcdCodeSet = map_ICD9_to_CCS(df_diag_listing)
+diagnosesCCS, smallICDs = map_ICD9_to_CCS(df_diag_listing)
+df_diag_listing['SMALL_DIAG_ICD9'] = smallICDs
 df_diag_listing['DIAG_CCS'] = diagnosesCCS
 
 df_adm = pd.merge(df_adm,
-                  df_diag_listing[['HADM_ID','ICD9_CODE','DIAG_CCS']],
+                  df_diag_listing[['HADM_ID','ICD9_CODE','SMALL_DIAG_ICD9','DIAG_CCS']],
                   on = ['HADM_ID'],
                   how = 'left')
 
@@ -213,11 +280,12 @@ df_procedures = df_procedures.reset_index(drop = True)
 df_procedures.ICD9_CODE = "P_" + df_procedures.ICD9_CODE.astype(str)
 df_proc_listing = df_procedures.groupby('HADM_ID')['ICD9_CODE'].apply(list)
 df_proc_listing = df_proc_listing.reset_index()
-proceduresCCS, _ = map_ICD9_to_CCS(df_proc_listing, baseCodeSet=baseIcdCodeSet, writeIcdIdx=True)
+proceduresCCS, smallICDs = map_ICD9_to_CCS(df_proc_listing)
+df_proc_listing['SMALL_PROC_ICD9'] = smallICDs
 df_proc_listing['PROC_CCS'] = proceduresCCS
 
 df_adm = pd.merge(df_adm,
-                  df_proc_listing[['HADM_ID','ICD9_CODE','PROC_CCS']],
+                  df_proc_listing[['HADM_ID','ICD9_CODE','SMALL_PROC_ICD9','PROC_CCS']],
                   on = ['HADM_ID'],
                   how = 'left')
 
@@ -231,17 +299,19 @@ df_medication = df_medication.reset_index(drop = True)
 # df_med_listing1 = df_med_listing1.reset_index()
 df_med_listing = df_medication.groupby('HADM_ID')['NDC'].apply(list)
 df_med_listing = df_med_listing.reset_index()
-df_med_listing = get_unique_ordered_medication(df_med_listing) #now the list of medication only contains unique medications, not a long list of many repeated meds
+df_med_listing, cuis = get_unique_ordered_medication(df_med_listing) #now the list of medication only contains unique medications, not a long list of many repeated meds
+df_med_listing['CUI'] = cuis
 
 df_adm = pd.merge(df_adm,
-                  df_med_listing[['HADM_ID','NDC']],
+                  df_med_listing[['HADM_ID','NDC','CUI']],
                   on = ['HADM_ID'],
                   how = 'left')
 
 df_notes = pd.read_csv('/backup/mimiciii/NOTEEVENTS.csv.gz', compression="gzip")
 df_notes = df_notes.sort_values(by=['SUBJECT_ID','HADM_ID','CHARTDATE'])
-df_adm_notes = pd.merge(df_adm[['SUBJECT_ID','HADM_ID','ADMITTIME','DISCHTIME','DAYS_NEXT_ADMIT',"DAYS_PREV_ADMIT",'NEXT_ADMITTIME','ADMISSION_TYPE',
-                                'DEATHTIME','OUTPUT_LABEL','DURATION','DIAG_ICD9','DIAG_CCS','PROC_ICD9','PROC_CCS','NDC']],
+df_adm_notes = pd.merge(df_adm[['SUBJECT_ID','HADM_ID','ADMITTIME','DISCHTIME','DAYS_NEXT_ADMIT','DAYS_PREV_ADMIT','NEXT_ADMITTIME','ADMISSION_TYPE',
+                                'DEATHTIME','OUTPUT_LABEL','DURATION','DIAG_ICD9','SMALL_DIAG_ICD9','DIAG_CCS','PROC_ICD9','SMALL_PROC_ICD9',
+                                'PROC_CCS','NDC', 'CUI']],
                         df_notes[['SUBJECT_ID','HADM_ID','CHARTDATE','CHARTTIME','TEXT','CATEGORY']],
                         on = ['SUBJECT_ID','HADM_ID'],
                         how = 'left')
@@ -274,10 +344,13 @@ def less_n_days_data (df_adm_notes, n):
     df_concat['DAYS_PREV_ADMIT'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DAYS_PREV_ADMIT.values[0])
     df_concat['DURATION'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DURATION.values[0])
     df_concat['DIAG_ICD9'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DIAG_ICD9.values[0])
+    df_concat['SMALL_DIAG_ICD9'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].SMALL_DIAG_ICD9.values[0])
     df_concat['DIAG_CCS'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].DIAG_CCS.values[0])
     df_concat['PROC_ICD9'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].PROC_ICD9.values[0])
+    df_concat['SMALL_PROC_ICD9'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].SMALL_PROC_ICD9.values[0])
     df_concat['PROC_CCS'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].PROC_CCS.values[0])
     df_concat['NDC'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].NDC.values[0])
+    df_concat['CUI'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].CUI.values[0])
     df_concat = df_concat.sort_values(by=['SUBJECT_ID','HADM_ID'])
     df_concat = df_concat.reset_index(drop = True)
     return df_concat
@@ -309,7 +382,8 @@ def preprocessing(df_less_n):
     from tqdm import tqdm
     df_len = len(df_less_n)
     #want=pd.DataFrame({'ID':[],'DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'TEXT':[],'Label':[]})
-    want=pd.DataFrame({'HADM_ID':[],'SUBJECT_ID':[],'ADMITTIME':[],'DAYS_NEXT_ADMIT':[],'DAYS_PREV_ADMIT':[],'DURATION':[],'DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'TEXT':[],'Label':[]})
+    want=pd.DataFrame({'HADM_ID':[],'SUBJECT_ID':[],'ADMITTIME':[],'DAYS_NEXT_ADMIT':[],'DAYS_PREV_ADMIT':[],'DURATION':[],'DIAG_ICD9':[],
+        'SMALL_DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'SMALL_PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'CUI':[],'TEXT':[],'Label':[]})
     for i in tqdm(range(df_len)):
         x=df_less_n.TEXT.iloc[i].split()
         n=int(len(x)/318)
@@ -317,18 +391,20 @@ def preprocessing(df_less_n):
             want=want.append({'TEXT':' '.join(x[j*318:(j+1)*318]),'Label':df_less_n.OUTPUT_LABEL.iloc[i],'HADM_ID':df_less_n.HADM_ID.iloc[i],
                               'SUBJECT_ID':df_less_n.SUBJECT_ID.iloc[i],'ADMITTIME':df_less_n.ADMITTIME.iloc[i],
                               'DAYS_NEXT_ADMIT':df_less_n.DAYS_NEXT_ADMIT.iloc[i], 'DAYS_PREV_ADMIT':df_less_n.DAYS_PREV_ADMIT.iloc[i], 
-                              'DURATION':df_less_n.DURATION.iloc[i], 'NDC':df_less_n.NDC.iloc[i]}, 
+                              'DURATION':df_less_n.DURATION.iloc[i], 'NDC':df_less_n.NDC.iloc[i], 
                               'DIAG_ICD9':df_less_n.DIAG_ICD9.iloc[i],'DIAG_CCS':df_less_n.DIAG_CCS.iloc[i],
-                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i], ignore_index=True)
-                              
+                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i],
+                              'SMALL_DIAG_ICD9':df_less_n.SMALL_DIAG_ICD9.iloc[i],'SMALL_PROC_ICD9':df_less_n.SMALL_PROC_ICD9.iloc[i],
+                              'CUI':df_less_n.CUI.iloc[i]}, ignore_index=True)                           
         if len(x)%318>10:
             want=want.append({'TEXT':' '.join(x[-(len(x)%318):]),'Label':df_less_n.OUTPUT_LABEL.iloc[i],'HADM_ID':df_less_n.HADM_ID.iloc[i],
                               'SUBJECT_ID':df_less_n.SUBJECT_ID.iloc[i],'ADMITTIME':df_less_n.ADMITTIME.iloc[i],
                               'DAYS_NEXT_ADMIT':df_less_n.DAYS_NEXT_ADMIT.iloc[i], 'DAYS_PREV_ADMIT':df_less_n.DAYS_PREV_ADMIT.iloc[i], 
-                              'DURATION':df_less_n.DURATION.iloc[i], 'NDC':df_less_n.NDC.iloc[i]},
+                              'DURATION':df_less_n.DURATION.iloc[i], 'NDC':df_less_n.NDC.iloc[i],
                               'DIAG_ICD9':df_less_n.DIAG_ICD9.iloc[i],'DIAG_CCS':df_less_n.DIAG_CCS.iloc[i],
-                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i], ignore_index=True)
-                              
+                              'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i],
+                              'SMALL_DIAG_ICD9':df_less_n.SMALL_DIAG_ICD9.iloc[i],'SMALL_PROC_ICD9':df_less_n.SMALL_PROC_ICD9.iloc[i],
+                              'CUI':df_less_n.CUI.iloc[i]}, ignore_index=True)                      
     return want
 
 df_discharge = preprocessing(df_discharge)
@@ -336,6 +412,8 @@ df_less_2 = preprocessing(df_less_2)
 df_less_3 = preprocessing(df_less_3)
 
 print("DATA PREPROCESSED")
+
+
 
 ### An example to get the train/test/split with random state:
 ### note that we divide on patient admission level and share among experiments, instead of notes level.
@@ -399,14 +477,13 @@ discharge_train_snippets.Label.value_counts()
 print("BEGINNING SAVING TO CSV")
 
 discharge_train_snippets.to_csv('../data/extended/discharge/train.csv',
-                                columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                                columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
 
 discharge_val.to_csv('../data/extended/discharge/val.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
+                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
 
 discharge_test.to_csv('../data/extended/discharge/test.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
-
+                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
 
 ### for Early notes experiment: we only need to find training set for 3 days, then we can test
 ### both 3 days and 2 days. Since we split the data on patient level and experiments share admissions
@@ -422,13 +499,11 @@ early_train_snippets = pd.concat([df_less_3[df_less_3.HADM_ID.isin(not_readmit_I
 #shuffle
 early_train_snippets = early_train_snippets.sample(frac=1, random_state=1).reset_index(drop=True)
 early_train_snippets.to_csv('../data/extended/3days/train.csv',
-                            columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
-
+                            columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
 
 early_val = df_less_3[df_less_3.HADM_ID.isin(val_id_label.id)]
 early_val.to_csv('../data/extended/3days/val.csv',
-                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
-
+                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
 
 # we want to test on admissions that are not discharged already. So for less than 3 days of notes experiment,
 # we filter out admissions discharged within 3 days
@@ -437,8 +512,7 @@ test_actionable_id_label = test_id_label[test_id_label.id.isin(actionable_ID_3da
 early_test = df_less_3[df_less_3.HADM_ID.isin(test_actionable_id_label.id)]
 
 early_test.to_csv('../data/extended/3days/test.csv',
-                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
-
+                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
 
 #for 2 days notes, we only obtain test set. Since the model parameters are tuned on the val set of 3 days
 
@@ -449,5 +523,4 @@ test_actionable_id_label_2days = test_id_label[test_id_label.id.isin(actionable_
 early_test_2days = df_less_2[df_less_2.HADM_ID.isin(test_actionable_id_label_2days.id)]
 
 early_test_2days.to_csv('../data/extended/2days/test.csv',
-                        columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","DIAG_CCS","PROC_ICD9","PROC_CCS","NDC","Label","TEXT"])
-
+                        columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
