@@ -1157,6 +1157,8 @@ class BertForSequenceClassification(PreTrainedBertModel):
     #   processo final de combinar?
     #   usar linear e depois bilstm-crf?
             if "daystonextadmit" in additional_features_name:
+                # print(pooled_output2.size())
+                # print(daysnextadmit_output.size())
                 pooled_output2 = torch.cat((pooled_output2, daysnextadmit_output), dim=1)
             if "diag_icd9" in additional_features_name:
                 # print(pooled_output2.size())
