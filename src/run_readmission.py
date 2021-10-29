@@ -172,8 +172,9 @@ def main():
                         default=None,
                         nargs="*",
                         type=str,
-                        choices=["admittime", "daystonextadmit", "duration", "diag_icd9", "diag_ccs", "proc_icd9", "proc_ccs", "ndc"],
-                        help='Additional features to use as model input. Please select one or more of the following inputs: [admittime, daystonextadmit, duration, diag_icd9, diag_ccs, proc_icd9, proc_ccs, ndc]')
+                        choices=["admittime", "daystonextadmit", "daystoprevadmit", "duration", "diag_icd9", "diag_ccs", "proc_icd9", "proc_ccs", "ndc", "small_diag_icd9",
+                                "small_proc_icd9", "cui"],
+                        help='Additional features to use as model input. Please select one or more of the following inputs: [admittime, daystonextadmit, daystoprevadmit, duration, diag_icd9, diag_ccs, proc_icd9, proc_ccs, ndc, small_diag_icd9, small_proc_icd9, cui')
     parser.add_argument('--icd9_ccs_maxlength',
                         type=int,
                         default=40,
@@ -182,6 +183,14 @@ def main():
                         type=int,
                         default=200,
                         help="max length for ndc tensors")
+    parser.add_argument('--small_icd9_ccs_maxlength',
+                        type=int,
+                        default=40,
+                        help="max length for small_icd9 and ccs tensors")
+    parser.add_argument('--cui_maxlength',
+                        type=int,
+                        default=200,
+                        help="max length for cui tensors")
     parser.add_argument('--freeze_bert',
                         default=False,
                         action='store_true',
@@ -212,7 +221,8 @@ def main():
         "readmission": readmissionProcessor
     }
 
-    maxLenDict={"icd9_ccs_maxlen": args.icd9_ccs_maxlength, "ndc_maxlen": args.ndc_maxlength}
+    maxLenDict={"icd9_ccs_maxlen": args.icd9_ccs_maxlength, "ndc_maxlen": args.ndc_maxlength, 
+                "small_icd9_ccs_maxlen": args.small_icd9_ccs_maxlength, "cui_maxlen": args.cui_maxlength, }
 
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
@@ -344,6 +354,11 @@ def main():
                 val_tensors.append(torch.tensor([f.daystonextadmit for f in val_features], dtype=torch.float))
                 featurePositionDict["daystonextadmit"] = positionIdx
                 positionIdx+=1
+            if "daystoprevadmit" in args.additional_features:
+                train_tensors.append(torch.tensor([f.daystoprevadmit for f in train_features], dtype=torch.float))
+                val_tensors.append(torch.tensor([f.daystoprevadmit for f in val_features], dtype=torch.float))
+                featurePositionDict["daystoprevadmit"] = positionIdx
+                positionIdx+=1            
             if "duration"  in args.additional_features:
                 train_tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.float))
                 val_tensors.append(torch.tensor([f.duration for f in val_features], dtype=torch.float))
@@ -373,6 +388,22 @@ def main():
                 train_tensors.append(torch.tensor([f.ndc for f in train_features], dtype=torch.long))
                 val_tensors.append(torch.tensor([f.ndc for f in val_features], dtype=torch.long))
                 featurePositionDict["ndc"] = positionIdx
+                positionIdx+=1
+            
+            if "small_diag_icd9" in args.additional_features:
+                train_tensors.append(torch.tensor([f.small_diag_icd9 for f in train_features], dtype=torch.long))
+                val_tensors.append(torch.tensor([f.small_diag_icd9 for f in val_features], dtype=torch.long))
+                featurePositionDict["small_diag_icd9"] = positionIdx
+                positionIdx+=1
+            if "small_proc_icd9" in args.additional_features:
+                train_tensors.append(torch.tensor([f.small_proc_icd9 for f in train_features], dtype=torch.long))
+                val_tensors.append(torch.tensor([f.small_proc_icd9 for f in val_features], dtype=torch.long))
+                featurePositionDict["small_proc_icd9"] = positionIdx
+                positionIdx+=1    
+            if "cui"       in args.additional_features:
+                train_tensors.append(torch.tensor([f.cui for f in train_features], dtype=torch.long))
+                val_tensors.append(torch.tensor([f.cui for f in val_features], dtype=torch.long))
+                featurePositionDict["cui"] = positionIdx
                 positionIdx+=1
 
         train_data = TensorDataset(*train_tensors)
@@ -518,7 +549,7 @@ def main():
             ## Setting model back in training mode:
             model.train()
             
-        string = os.path.join(args.output_dir, 'pytorch_model_new_'+args.readmission_mode+'.bin')
+        string = os.path.join(args.output_dir, 'pytorch_model')#'pytorch_model_new_'+args.readmission_mode+'.bin')
         if not args.early_stop: checkpoint_model_state = model.state_dict()
         torch.save(checkpoint_model_state, string)
 
@@ -556,6 +587,10 @@ def main():
                 tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
                 featurePositionDict["daystonextadmit"] = positionIdx
                 positionIdx+=1
+            if "daystoprevadmit" in args.additional_features:
+                tensors.append(torch.tensor([f.daystoprevadmit for f in test_features], dtype=torch.float))
+                featurePositionDict["daystoprevadmit"] = positionIdx
+                positionIdx+=1
             if "duration"  in args.additional_features:
                 tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.float))
                 featurePositionDict["duration"] = positionIdx
@@ -580,7 +615,20 @@ def main():
                 tensors.append(torch.tensor([f.ndc for f in test_features], dtype=torch.long))
                 featurePositionDict["ndc"] = positionIdx
                 positionIdx+=1
-
+                
+            if "small_diag_icd9" in args.additional_features:
+                tensors.append(torch.tensor([f.small_diag_icd9 for f in test_features], dtype=torch.long))
+                featurePositionDict["small_diag_icd9"] = positionIdx
+                positionIdx+=1
+            if "small_proc_icd9" in args.additional_features:
+                tensors.append(torch.tensor([f.small_proc_icd9 for f in test_features], dtype=torch.long))
+                featurePositionDict["small_proc_icd9"] = positionIdx
+                positionIdx+=1
+            if "cui"       in args.additional_features:
+                tensors.append(torch.tensor([f.cui for f in test_features], dtype=torch.long))
+                featurePositionDict["cui"] = positionIdx
+                positionIdx+=1
+                
         test_data = TensorDataset(*tensors)
 
         if args.local_rank == -1:
