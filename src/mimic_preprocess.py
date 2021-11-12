@@ -237,9 +237,9 @@ rows = df_adm.NEXT_ADMISSION_TYPE == 'ELECTIVE'
 df_adm.loc[rows,'NEXT_ADMITTIME'] = pd.NaT
 df_adm.loc[rows,'NEXT_ADMISSION_TYPE'] = np.NaN
 
-rows = df_adm.PREV_ADMISSION_TYPE == 'ELECTIVE'
-df_adm.loc[rows,'PREV_DISCHTIME'] = pd.NaT
-df_adm.loc[rows,'PREV_ADMISSION_TYPE'] = np.NaN
+# rows = df_adm.PREV_ADMISSION_TYPE == 'ELECTIVE'
+# df_adm.loc[rows,'PREV_DISCHTIME'] = pd.NaT
+# df_adm.loc[rows,'PREV_ADMISSION_TYPE'] = np.NaN
 
 df_adm = df_adm.sort_values(['SUBJECT_ID','ADMITTIME'])
 
@@ -307,11 +307,17 @@ df_adm = pd.merge(df_adm,
                   on = ['HADM_ID'],
                   how = 'left')
 
+df_adm['NEXT_SMALL_DIAG_ICD9'] = df_adm.groupby('SUBJECT_ID').SMALL_DIAG_ICD9.shift(-1)
+df_adm['NEXT_DIAG_CCS'] = df_adm.groupby('SUBJECT_ID').DIAG_CCS.shift(-1)
+df_adm['NEXT_SMALL_PROC_ICD9'] = df_adm.groupby('SUBJECT_ID').SMALL_PROC_ICD9.shift(-1)
+df_adm['NEXT_PROC_CCS'] = df_adm.groupby('SUBJECT_ID').PROC_CCS.shift(-1)
+df_adm['NEXT_CUI'] = df_adm.groupby('SUBJECT_ID').CUI.shift(-1)
+
 df_notes = pd.read_csv('/backup/mimiciii/NOTEEVENTS.csv.gz', compression="gzip")
 df_notes = df_notes.sort_values(by=['SUBJECT_ID','HADM_ID','CHARTDATE'])
 df_adm_notes = pd.merge(df_adm[['SUBJECT_ID','HADM_ID','ADMITTIME','DISCHTIME','DAYS_NEXT_ADMIT','DAYS_PREV_ADMIT','NEXT_ADMITTIME','ADMISSION_TYPE',
                                 'DEATHTIME','OUTPUT_LABEL','DURATION','DIAG_ICD9','SMALL_DIAG_ICD9','DIAG_CCS','PROC_ICD9','SMALL_PROC_ICD9',
-                                'PROC_CCS','NDC', 'CUI']],
+                                'PROC_CCS','NDC', 'CUI','NEXT_SMALL_DIAG_ICD9', 'NEXT_DIAG_CCS', 'NEXT_SMALL_PROC_ICD9', 'NEXT_PROC_CCS', 'NEXT_CUI']],
                         df_notes[['SUBJECT_ID','HADM_ID','CHARTDATE','CHARTTIME','TEXT','CATEGORY']],
                         on = ['SUBJECT_ID','HADM_ID'],
                         how = 'left')
@@ -351,6 +357,11 @@ def less_n_days_data (df_adm_notes, n):
     df_concat['PROC_CCS'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].PROC_CCS.values[0])
     df_concat['NDC'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].NDC.values[0])
     df_concat['CUI'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].CUI.values[0])
+    df_concat['NEXT_SMALL_DIAG_ICD9'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].NEXT_SMALL_DIAG_ICD9.values[0])
+    df_concat['NEXT_DIAG_CCS'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].NEXT_DIAG_CCS.values[0])
+    df_concat['NEXT_SMALL_PROC_ICD9'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].NEXT_SMALL_PROC_ICD9.values[0])
+    df_concat['NEXT_PROC_CCS'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].NEXT_PROC_CCS.values[0])
+    df_concat['NEXT_CUI'] = df_concat['HADM_ID'].apply(lambda x: df_less_n[df_less_n['HADM_ID']==x].NEXT_CUI.values[0])  
     df_concat = df_concat.sort_values(by=['SUBJECT_ID','HADM_ID'])
     df_concat = df_concat.reset_index(drop = True)
     return df_concat
@@ -383,7 +394,8 @@ def preprocessing(df_less_n):
     df_len = len(df_less_n)
     #want=pd.DataFrame({'ID':[],'DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'TEXT':[],'Label':[]})
     want=pd.DataFrame({'HADM_ID':[],'SUBJECT_ID':[],'ADMITTIME':[],'DAYS_NEXT_ADMIT':[],'DAYS_PREV_ADMIT':[],'DURATION':[],'DIAG_ICD9':[],
-        'SMALL_DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'SMALL_PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'CUI':[],'TEXT':[],'Label':[]})
+                       'SMALL_DIAG_ICD9':[],'DIAG_CCS':[],'PROC_ICD9':[],'SMALL_PROC_ICD9':[],'PROC_CCS':[],'NDC':[],'CUI':[],'TEXT':[],'Label':[],
+                       'NEXT_SMALL_DIAG_ICD9':[],'NEXT_DIAG_CCS':[],'NEXT_SMALL_PROC_ICD9':[],'NEXT_PROC_CCS':[],'NEXT_CUI':[]})
     for i in tqdm(range(df_len)):
         x=df_less_n.TEXT.iloc[i].split()
         n=int(len(x)/318)
@@ -395,7 +407,9 @@ def preprocessing(df_less_n):
                               'DIAG_ICD9':df_less_n.DIAG_ICD9.iloc[i],'DIAG_CCS':df_less_n.DIAG_CCS.iloc[i],
                               'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i],
                               'SMALL_DIAG_ICD9':df_less_n.SMALL_DIAG_ICD9.iloc[i],'SMALL_PROC_ICD9':df_less_n.SMALL_PROC_ICD9.iloc[i],
-                              'CUI':df_less_n.CUI.iloc[i]}, ignore_index=True)                           
+                              'CUI':df_less_n.CUI.iloc[i], 'NEXT_CUI':df_less_n.NEXT_CUI.iloc[i],
+                              'NEXT_SMALL_DIAG_ICD9':df_less_n.NEXT_SMALL_DIAG_ICD9.iloc[i], 'NEXT_SMALL_PROC_ICD9':df_less_n.NEXT_SMALL_PROC_ICD9.iloc[i],
+                              'NEXT_DIAG_CCS':df_less_n.NEXT_DIAG_CCS.iloc[i], 'NEXT_PROC_CCS':df_less_n.NEXT_PROC_CCS.iloc[i],}, ignore_index=True)                           
         if len(x)%318>10:
             want=want.append({'TEXT':' '.join(x[-(len(x)%318):]),'Label':df_less_n.OUTPUT_LABEL.iloc[i],'HADM_ID':df_less_n.HADM_ID.iloc[i],
                               'SUBJECT_ID':df_less_n.SUBJECT_ID.iloc[i],'ADMITTIME':df_less_n.ADMITTIME.iloc[i],
@@ -404,7 +418,9 @@ def preprocessing(df_less_n):
                               'DIAG_ICD9':df_less_n.DIAG_ICD9.iloc[i],'DIAG_CCS':df_less_n.DIAG_CCS.iloc[i],
                               'PROC_ICD9':df_less_n.PROC_ICD9.iloc[i],'PROC_CCS':df_less_n.PROC_CCS.iloc[i],
                               'SMALL_DIAG_ICD9':df_less_n.SMALL_DIAG_ICD9.iloc[i],'SMALL_PROC_ICD9':df_less_n.SMALL_PROC_ICD9.iloc[i],
-                              'CUI':df_less_n.CUI.iloc[i]}, ignore_index=True)                      
+                              'CUI':df_less_n.CUI.iloc[i], 'NEXT_CUI':df_less_n.NEXT_CUI.iloc[i],
+                              'NEXT_SMALL_DIAG_ICD9':df_less_n.NEXT_SMALL_DIAG_ICD9.iloc[i], 'NEXT_SMALL_PROC_ICD9':df_less_n.NEXT_SMALL_PROC_ICD9.iloc[i],
+                              'NEXT_DIAG_CCS':df_less_n.NEXT_DIAG_CCS.iloc[i], 'NEXT_PROC_CCS':df_less_n.NEXT_PROC_CCS.iloc[i],}, ignore_index=True)                     
     return want
 
 df_discharge = preprocessing(df_discharge)
@@ -477,13 +493,13 @@ discharge_train_snippets.Label.value_counts()
 print("BEGINNING SAVING TO CSV")
 
 discharge_train_snippets.to_csv('../data/extended/discharge/train.csv',
-                                columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
+                                columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
 
 discharge_val.to_csv('../data/extended/discharge/val.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
+                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
 
 discharge_test.to_csv('../data/extended/discharge/test.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
+                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
 
 ### for Early notes experiment: we only need to find training set for 3 days, then we can test
 ### both 3 days and 2 days. Since we split the data on patient level and experiments share admissions
@@ -499,11 +515,11 @@ early_train_snippets = pd.concat([df_less_3[df_less_3.HADM_ID.isin(not_readmit_I
 #shuffle
 early_train_snippets = early_train_snippets.sample(frac=1, random_state=1).reset_index(drop=True)
 early_train_snippets.to_csv('../data/extended/3days/train.csv',
-                            columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
+                            columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
 
 early_val = df_less_3[df_less_3.HADM_ID.isin(val_id_label.id)]
 early_val.to_csv('../data/extended/3days/val.csv',
-                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
+                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
 
 # we want to test on admissions that are not discharged already. So for less than 3 days of notes experiment,
 # we filter out admissions discharged within 3 days
@@ -512,7 +528,7 @@ test_actionable_id_label = test_id_label[test_id_label.id.isin(actionable_ID_3da
 early_test = df_less_3[df_less_3.HADM_ID.isin(test_actionable_id_label.id)]
 
 early_test.to_csv('../data/extended/3days/test.csv',
-                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
+                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
 
 #for 2 days notes, we only obtain test set. Since the model parameters are tuned on the val set of 3 days
 
@@ -523,4 +539,4 @@ test_actionable_id_label_2days = test_id_label[test_id_label.id.isin(actionable_
 early_test_2days = df_less_2[df_less_2.HADM_ID.isin(test_actionable_id_label_2days.id)]
 
 early_test_2days.to_csv('../data/extended/2days/test.csv',
-                        columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT"])
+                        columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
