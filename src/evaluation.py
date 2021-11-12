@@ -14,6 +14,26 @@ def accuracy(out, labels):
     outputs = np.argmax(out, axis=1)
     return np.sum(outputs == labels)
 
+def compute_accuracy(true_labels, pred_labels, hadm_ids, features):
+    if "clinical_text" in features:
+        accuracy = np.sum(true_labels == pred_labels)/len(true_labels)
+    else:
+        unique_entries = 0
+        correct_predictions = 0
+        incorrect_predictions = 0
+        prev_hadm_id = ""
+        for idx, hadm_id in enumerate(hadm_ids):
+            if hadm_id != prev_hadm_id:
+                prev_hadm_id = hadm_id
+                unique_entries+=1
+                if true_labels[idx] == pred_labels[idx]: correct_predictions+=1
+                else:
+                    # print(f'Incorrect prediction: true label {true_labels[idx]}, pred label {pred_labels[idx]}, hadm_id {hadm_id}')
+                    incorrect_predictions+=1
+        accuracy = correct_predictions / unique_entries 
+        print(f'Correct predictions {correct_predictions} vs Incorrect predictions {incorrect_predictions}')
+    return accuracy
+
 def vote_score(df, score, args):
     df['pred_score'] = score
     df_sort = df.sort_values(by=['HADM_ID'])
@@ -64,12 +84,14 @@ def pr_curve_plot(y, y_score, args):
 def vote_pr_curve(df, score, args):
     df['pred_score'] = score
     df_sort = df.sort_values(by=['HADM_ID'])
-    #score 
-    temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/2)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/2)
+    #score
+    scaling_factor = 2
+    temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/scaling_factor)/(1+df_sort.groupby(['HADM_ID'])
+                                                                                                                                     ['pred_score'].agg(len)/scaling_factor)
     y = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
     
     precision, recall, thres = precision_recall_curve(y, temp)
-    pr_thres = pd.DataFrame(data =  list(zip(precision, recall, thres)), columns = ['prec','recall','thres'])
+    pr_thres = pd.DataFrame(data = list(zip(precision, recall, thres)), columns = ['prec','recall','thres'])
     vote_df = pd.DataFrame(data =  list(zip(temp, y)), columns = ['score','label'])
     
     pr_curve_plot(y, temp, args)
