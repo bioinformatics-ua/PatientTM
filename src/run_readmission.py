@@ -47,7 +47,7 @@ from ranger21 import Ranger21 as RangerOptimizer
 
 from modeling_readmission import BertForSequenceClassification, BertForSequenceClassificationOriginal
 from data_processor import convert_examples_to_features, readmissionProcessor
-from evaluation import vote_score, vote_pr_curve
+from evaluation import vote_score, vote_pr_curve, compute_accuracy
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -168,28 +168,20 @@ def main():
     parser.add_argument('--loss_scale',
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-    parser.add_argument('-feat','--additional_features',
+    parser.add_argument('-feat','--features',
                         default=None,
                         nargs="*",
                         type=str,
-                        choices=["admittime", "daystonextadmit", "daystoprevadmit", "duration", "diag_icd9", "diag_ccs", "proc_icd9", "proc_ccs", "ndc", "small_diag_icd9",
-                                "small_proc_icd9", "cui"],
-                        help='Additional features to use as model input. Please select one or more of the following inputs: [admittime, daystonextadmit, daystoprevadmit, duration, diag_icd9, diag_ccs, proc_icd9, proc_ccs, ndc, small_diag_icd9, small_proc_icd9, cui')
-    parser.add_argument('--icd9_ccs_maxlength',
-                        type=int,
-                        default=40,
-                        help="max length for icd9 and ccs tensors")
-    parser.add_argument('--ndc_maxlength',
-                        type=int,
-                        default=200,
-                        help="max length for ndc tensors")
+                        choices=["clinical_text", "admittime", "daystonextadmit", "daystoprevadmit", "duration", "diag_ccs", "proc_ccs", "small_diag_icd9",
+                                "small_proc_icd9", "cui"], #"proc_icd9", "diag_icd9", "ndc"],
+                        help='Features to use as model input. Please select one or more of the following inputs: [clinical_text, admittime, daystonextadmit, daystoprevadmit, duration, diag_ccs, proc_ccs, small_diag_icd9, small_proc_icd9, cui')
     parser.add_argument('--small_icd9_ccs_maxlength',
                         type=int,
-                        default=40,
-                        help="max length for small_icd9 and ccs tensors")
+                        default=39,
+                        help="max length for icd9 and ccs tensors")
     parser.add_argument('--cui_maxlength',
                         type=int,
-                        default=200,
+                        default=47,
                         help="max length for cui tensors")
     parser.add_argument('--freeze_bert',
                         default=False,
@@ -221,8 +213,7 @@ def main():
         "readmission": readmissionProcessor
     }
 
-    maxLenDict={"icd9_ccs_maxlen": args.icd9_ccs_maxlength, "ndc_maxlen": args.ndc_maxlength, 
-                "small_icd9_ccs_maxlen": args.small_icd9_ccs_maxlength, "cui_maxlen": args.cui_maxlength, }
+    maxLenDict={"small_icd9_ccs_maxlen": args.small_icd9_ccs_maxlength, "cui_maxlen": args.cui_maxlength, }
 
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
@@ -268,7 +259,7 @@ def main():
 
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
-    model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.additional_features)
+    model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
     # model = BertForSequenceClassificationOriginal.from_pretrained(args.bert_model, 1)
     
     ## Setting WandBI to log gradients and model parameters
@@ -316,95 +307,102 @@ def main():
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
             ]
         
-        train_examples = processor.get_train_examples(args.data_dir, args.additional_features)
-        val_examples   = processor.get_dev_examples(args.data_dir, args.additional_features)
+        train_examples = processor.get_train_examples(args.data_dir, args.features)
+        val_examples   = processor.get_dev_examples(args.data_dir, args.features)
         
         num_train_steps = int(len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
         
-        train_features = convert_examples_to_features(train_examples, label_list, args.max_seq_length, tokenizer, args.additional_features, maxLenDict)
-        val_features   = convert_examples_to_features(val_examples, label_list, args.max_seq_length, tokenizer, args.additional_features, maxLenDict)
+        train_features = convert_examples_to_features(train_examples, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict)
+        val_features   = convert_examples_to_features(val_examples, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict)
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_steps)
         
-        train_all_input_ids   = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-        train_all_input_mask  = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-        train_all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-        train_all_label_ids   = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-        train_tensors = [train_all_input_ids, train_all_input_mask, train_all_segment_ids, train_all_label_ids]
-        
-        val_all_input_ids   = torch.tensor([f.input_ids for f in val_features], dtype=torch.long)
-        val_all_input_mask  = torch.tensor([f.input_mask for f in val_features], dtype=torch.long)
-        val_all_segment_ids = torch.tensor([f.segment_ids for f in val_features], dtype=torch.long)
-        val_all_label_ids   = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
-        val_tensors = [val_all_input_ids, val_all_input_mask, val_all_segment_ids, val_all_label_ids]
+        if "clinical_text" in args.features:
+            train_all_input_ids   = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+            train_all_input_mask  = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+            train_all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+            train_all_label_ids   = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+            train_tensors = [train_all_input_ids, train_all_input_mask, train_all_segment_ids, train_all_label_ids]
+
+            val_all_hadm_ids    = [f.hadm_id for f in val_features]
+            val_all_input_ids   = torch.tensor([f.input_ids for f in val_features], dtype=torch.long)
+            val_all_input_mask  = torch.tensor([f.input_mask for f in val_features], dtype=torch.long)
+            val_all_segment_ids = torch.tensor([f.segment_ids for f in val_features], dtype=torch.long)
+            val_all_label_ids   = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
+            val_tensors = [val_all_input_ids, val_all_input_mask, val_all_segment_ids, val_all_label_ids]
+        else:
+            train_all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+            train_tensors = [train_all_label_ids]
+            val_all_hadm_ids    = [f.hadm_id for f in val_features]
+            val_all_label_ids = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
+            val_tensors = [val_all_label_ids]
 
         featurePositionDict = {}
         positionIdx=0
-        # additionalFeatureOrder = [feature for feature in args.additional_features]
-        if args.additional_features is not None:
-            if "admittime" in args.additional_features:
-                train_tensors.append(torch.tensor([f.admittime for f in train_features], dtype=torch.long))  #long, float, or other??!
-                val_tensors.append(torch.tensor([f.admittime for f in val_features], dtype=torch.long))       #long, float, or other??!
-                featurePositionDict["admittime"] = positionIdx
-                positionIdx+=1
-            if "daystonextadmit" in args.additional_features:
-                train_tensors.append(torch.tensor([f.daystonextadmit for f in train_features], dtype=torch.float))
-                val_tensors.append(torch.tensor([f.daystonextadmit for f in val_features], dtype=torch.float))
-                featurePositionDict["daystonextadmit"] = positionIdx
-                positionIdx+=1
-            if "daystoprevadmit" in args.additional_features:
-                train_tensors.append(torch.tensor([f.daystoprevadmit for f in train_features], dtype=torch.float))
-                val_tensors.append(torch.tensor([f.daystoprevadmit for f in val_features], dtype=torch.float))
-                featurePositionDict["daystoprevadmit"] = positionIdx
-                positionIdx+=1            
-            if "duration"  in args.additional_features:
-                train_tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.float))
-                val_tensors.append(torch.tensor([f.duration for f in val_features], dtype=torch.float))
-                featurePositionDict["duration"] = positionIdx
-                positionIdx+=1
-            if "diag_icd9" in args.additional_features:
-                train_tensors.append(torch.tensor([f.diag_icd9 for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.diag_icd9 for f in val_features], dtype=torch.long))
-                featurePositionDict["diag_icd9"] = positionIdx
-                positionIdx+=1
-            if "diag_ccs"  in args.additional_features:
-                train_tensors.append(torch.tensor([f.diag_ccs for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.diag_ccs for f in val_features], dtype=torch.long))
-                featurePositionDict["diag_ccs"] = positionIdx
-                positionIdx+=1
-            if "proc_icd9" in args.additional_features:
-                train_tensors.append(torch.tensor([f.proc_icd9 for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.proc_icd9 for f in val_features], dtype=torch.long))
-                featurePositionDict["proc_icd9"] = positionIdx
-                positionIdx+=1
-            if "proc_ccs"  in args.additional_features:
-                train_tensors.append(torch.tensor([f.proc_ccs for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.proc_ccs for f in val_features], dtype=torch.long))
-                featurePositionDict["proc_ccs"] = positionIdx
-                positionIdx+=1
-            if "ndc"       in args.additional_features:
-                train_tensors.append(torch.tensor([f.ndc for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.ndc for f in val_features], dtype=torch.long))
-                featurePositionDict["ndc"] = positionIdx
-                positionIdx+=1
-            
-            if "small_diag_icd9" in args.additional_features:
-                train_tensors.append(torch.tensor([f.small_diag_icd9 for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.small_diag_icd9 for f in val_features], dtype=torch.long))
-                featurePositionDict["small_diag_icd9"] = positionIdx
-                positionIdx+=1
-            if "small_proc_icd9" in args.additional_features:
-                train_tensors.append(torch.tensor([f.small_proc_icd9 for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.small_proc_icd9 for f in val_features], dtype=torch.long))
-                featurePositionDict["small_proc_icd9"] = positionIdx
-                positionIdx+=1    
-            if "cui"       in args.additional_features:
-                train_tensors.append(torch.tensor([f.cui for f in train_features], dtype=torch.long))
-                val_tensors.append(torch.tensor([f.cui for f in val_features], dtype=torch.long))
-                featurePositionDict["cui"] = positionIdx
-                positionIdx+=1
+
+        if "admittime" in args.features:
+            train_tensors.append(torch.tensor([f.admittime for f in train_features], dtype=torch.long))  #long, float, or other??!
+            val_tensors.append(torch.tensor([f.admittime for f in val_features], dtype=torch.long))       #long, float, or other??!
+            featurePositionDict["admittime"] = positionIdx
+            positionIdx+=1
+        if "daystonextadmit" in args.features:
+            train_tensors.append(torch.tensor([f.daystonextadmit for f in train_features], dtype=torch.float))
+            val_tensors.append(torch.tensor([f.daystonextadmit for f in val_features], dtype=torch.float))
+            featurePositionDict["daystonextadmit"] = positionIdx
+            positionIdx+=1
+        if "daystoprevadmit" in args.features:
+            train_tensors.append(torch.tensor([f.daystoprevadmit for f in train_features], dtype=torch.float))
+            val_tensors.append(torch.tensor([f.daystoprevadmit for f in val_features], dtype=torch.float))
+            featurePositionDict["daystoprevadmit"] = positionIdx
+            positionIdx+=1            
+        if "duration"  in args.features:
+            train_tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.float))
+            val_tensors.append(torch.tensor([f.duration for f in val_features], dtype=torch.float))
+            featurePositionDict["duration"] = positionIdx
+            positionIdx+=1
+        if "diag_ccs"  in args.features:
+            train_tensors.append(torch.tensor([f.diag_ccs for f in train_features], dtype=torch.long))
+            val_tensors.append(torch.tensor([f.diag_ccs for f in val_features], dtype=torch.long))
+            featurePositionDict["diag_ccs"] = positionIdx
+            positionIdx+=1
+        if "proc_ccs"  in args.features:
+            train_tensors.append(torch.tensor([f.proc_ccs for f in train_features], dtype=torch.long))
+            val_tensors.append(torch.tensor([f.proc_ccs for f in val_features], dtype=torch.long))
+            featurePositionDict["proc_ccs"] = positionIdx
+            positionIdx+=1
+        if "small_diag_icd9" in args.features:
+            train_tensors.append(torch.tensor([f.small_diag_icd9 for f in train_features], dtype=torch.long))
+            val_tensors.append(torch.tensor([f.small_diag_icd9 for f in val_features], dtype=torch.long))
+            featurePositionDict["small_diag_icd9"] = positionIdx
+            positionIdx+=1
+        if "small_proc_icd9" in args.features:
+            train_tensors.append(torch.tensor([f.small_proc_icd9 for f in train_features], dtype=torch.long))
+            val_tensors.append(torch.tensor([f.small_proc_icd9 for f in val_features], dtype=torch.long))
+            featurePositionDict["small_proc_icd9"] = positionIdx
+            positionIdx+=1    
+        if "cui" in args.features:
+            train_tensors.append(torch.tensor([f.cui for f in train_features], dtype=torch.long))
+            val_tensors.append(torch.tensor([f.cui for f in val_features], dtype=torch.long))
+            featurePositionDict["cui"] = positionIdx
+            positionIdx+=1
+
+        # if "diag_icd9" in args.features:
+        #     train_tensors.append(torch.tensor([f.diag_icd9 for f in train_features], dtype=torch.long))
+        #     val_tensors.append(torch.tensor([f.diag_icd9 for f in val_features], dtype=torch.long))
+        #     featurePositionDict["diag_icd9"] = positionIdx
+        #     positionIdx+=1
+        # if "proc_icd9" in args.features:
+        #     train_tensors.append(torch.tensor([f.proc_icd9 for f in train_features], dtype=torch.long))
+        #     val_tensors.append(torch.tensor([f.proc_icd9 for f in val_features], dtype=torch.long))
+        #     featurePositionDict["proc_icd9"] = positionIdx
+        #     positionIdx+=1
+        # if "ndc"       in args.features:
+        #     train_tensors.append(torch.tensor([f.ndc for f in train_features], dtype=torch.long))
+        #     val_tensors.append(torch.tensor([f.ndc for f in val_features], dtype=torch.long))
+        #     featurePositionDict["ndc"] = positionIdx
+        #     positionIdx+=1
 
         train_data = TensorDataset(*train_tensors)
         val_data   = TensorDataset(*val_tensors)
@@ -437,17 +435,24 @@ def main():
             for step, batch in enumerate(tqdm(train_dataloader, desc="Training Step")):
                 # batch = tuple(t.to(device) for t in batch)
                 #
-                input_ids, input_mask, segment_ids, label_ids, *extraFeatures = batch
-                input_ids = input_ids.to(device)
-                input_mask = input_mask.to(device)
-                segment_ids = segment_ids.to(device)
-                label_ids = label_ids.to(device)
-                if extraFeatures:
-                    extraFeatures = [feature.to(device) for feature in extraFeatures]
-                    loss, logits = model(input_ids, segment_ids, input_mask, label_ids, additional_features_name=args.additional_features,
-                                         additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
+                if "clinical_text" in args.features:
+                    input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures = batch
+                    input_ids = input_ids.to(device)
+                    input_mask = input_mask.to(device)
+                    segment_ids = segment_ids.to(device)
+                    label_ids = label_ids.to(device)     
+                    if nonTextFeatures:
+                        nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                             feature_position_dict=featurePositionDict) 
+                    else:
+                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)
                 else:
-                    loss, logits = model(input_ids, segment_ids, input_mask, label_ids)
+                    label_ids, *nonTextFeatures = batch
+                    label_ids = label_ids.to(device) 
+                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                    loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                    
 
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
@@ -478,10 +483,8 @@ def main():
                         copy_optimizer_params_to_model(model.named_parameters(), param_optimizer)
                     else:
                         optimizer.step()
-                    model.zero_grad()
-                    global_step += 1     
+                    model.zero_grad()  
                     
-            global_step_check=global_step
             number_training_steps=nb_tr_steps
             wandb.log({"Training loss": train_loss/number_training_steps})
             
@@ -490,46 +493,43 @@ def main():
             model.eval()
             m = nn.Sigmoid()            
             val_loss, val_accuracy = 0, 0
-            nb_val_steps, nb_val_examples = 0, 0
+            nb_val_steps = 0
             true_labels=[]
             pred_labels=[]
             logits_history = []
             for step, batch in enumerate(tqdm(val_dataloader, desc="Validation Step")):
-                input_ids, input_mask, segment_ids, label_ids, *extraFeatures = batch
-                input_ids = input_ids.to(device)
-                input_mask = input_mask.to(device)
-                segment_ids = segment_ids.to(device)
-                label_ids = label_ids.to(device)
-
                 ## Turning off gradient computation for safety
                 with torch.no_grad():
-                    if extraFeatures:
-                        extraFeatures = [feature.to(device) for feature in extraFeatures]
-                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, additional_features_name=args.additional_features,
-                                             additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
+                    if "clinical_text" in args.features:
+                        input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures = batch
+                        input_ids = input_ids.to(device)
+                        input_mask = input_mask.to(device)
+                        segment_ids = segment_ids.to(device)
+                        label_ids = label_ids.to(device)    
+                        if nonTextFeatures:
+                            nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                            loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                 feature_position_dict=featurePositionDict) 
+                        else:
+                            loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)
                     else:
-                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids)
+                        label_ids, *nonTextFeatures = batch
+                        label_ids = label_ids.to(device) 
+                        nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                        loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
 
                 logits = torch.squeeze(m(logits)).detach().cpu().numpy()
                 label_ids = label_ids.to('cpu').numpy()
-
                 outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                tmp_val_accuracy=np.sum(outputs == label_ids)
-
                 true_labels = true_labels + label_ids.flatten().tolist()
                 pred_labels = pred_labels + outputs.flatten().tolist()
                 logits_history = logits_history + logits.flatten().tolist()
 
                 val_loss += loss.mean().item()
-                val_accuracy += tmp_val_accuracy
-                nb_val_examples += input_ids.size(0)
-                nb_val_steps += 1
-                global_step += 1         
+                nb_val_steps += 1      
 
-            val_loss = val_loss/nb_val_steps
-            val_accuracy = val_accuracy/nb_val_examples
-            global_step_check = global_step
-            number_val_steps = nb_val_steps
+            val_loss = val_loss/nb_val_steps            
+            val_accuracy = compute_accuracy(true_labels, pred_labels, val_all_hadm_ids, args.features)
 
             df_val = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
             fpr, tpr, df_out = vote_score(df_val, logits_history, args)
@@ -549,7 +549,7 @@ def main():
             ## Setting model back in training mode:
             model.train()
             
-        string = os.path.join(args.output_dir, 'pytorch_model')#'pytorch_model_new_'+args.readmission_mode+'.bin')
+        string = os.path.join(args.output_dir, 'pytorch_model.bin')#'pytorch_model_new_'+args.readmission_mode+'.bin')
         if not args.early_stop: checkpoint_model_state = model.state_dict()
         torch.save(checkpoint_model_state, string)
 
@@ -562,72 +562,79 @@ def main():
     
     if args.do_eval:
         m = nn.Sigmoid()
-        test_examples = processor.get_test_examples(args.data_dir, args.additional_features)
+        test_examples = processor.get_test_examples(args.data_dir, args.features)
         test_features = convert_examples_to_features(
-            test_examples, label_list, args.max_seq_length, tokenizer, args.additional_features, maxLenDict)
+            test_examples, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict)
         logger.info("***** Running evaluation *****")
         logger.info("  Num examples = %d", len(test_examples))
         logger.info("  Batch size = %d", args.eval_batch_size)
-        all_input_ids = torch.tensor([f.input_ids for f in test_features], dtype=torch.long)
-        all_input_mask = torch.tensor([f.input_mask for f in test_features], dtype=torch.long)
-        all_segment_ids = torch.tensor([f.segment_ids for f in test_features], dtype=torch.long)
-        all_label_ids = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-        tensors = [all_input_ids, all_input_mask, all_segment_ids, all_label_ids]
+        
+        if "clinical_text" in args.features:
+            all_hadm_ids  = [f.hadm_id for f in test_features]
+            all_input_ids = torch.tensor([f.input_ids for f in test_features], dtype=torch.long)
+            all_input_mask = torch.tensor([f.input_mask for f in test_features], dtype=torch.long)
+            all_segment_ids = torch.tensor([f.segment_ids for f in test_features], dtype=torch.long)
+            all_label_ids = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+            tensors = [all_input_ids, all_input_mask, all_segment_ids, all_label_ids]
+        else:
+            all_hadm_ids = [f.hadm_id for f in test_features]
+            all_label_ids = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+            tensors = [all_label_ids]
 
         featurePositionDict = {}
         positionIdx=0
-        # additionalFeatureOrder = [feature for feature in args.additional_features]
+        # featureOrder = [feature for feature in args.features]
         
-        if args.additional_features is not None:
-            if "admittime" in args.additional_features:
+        if args.features is not None:
+            if "admittime" in args.features:
                 tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long)) #long, float, or other??!
                 featurePositionDict["admittime"] = positionIdx
                 positionIdx+=1
-            if "daystonextadmit" in args.additional_features:
+            if "daystonextadmit" in args.features:
                 tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
                 featurePositionDict["daystonextadmit"] = positionIdx
                 positionIdx+=1
-            if "daystoprevadmit" in args.additional_features:
+            if "daystoprevadmit" in args.features:
                 tensors.append(torch.tensor([f.daystoprevadmit for f in test_features], dtype=torch.float))
                 featurePositionDict["daystoprevadmit"] = positionIdx
                 positionIdx+=1
-            if "duration"  in args.additional_features:
+            if "duration"  in args.features:
                 tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.float))
                 featurePositionDict["duration"] = positionIdx
                 positionIdx+=1
-            if "diag_icd9" in args.additional_features:
-                tensors.append(torch.tensor([f.diag_icd9 for f in test_features], dtype=torch.long))
-                featurePositionDict["diag_icd9"] = positionIdx
-                positionIdx+=1
-            if "diag_ccs"  in args.additional_features:
+            if "diag_ccs"  in args.features:
                 tensors.append(torch.tensor([f.diag_ccs for f in test_features], dtype=torch.long))
                 featurePositionDict["diag_ccs"] = positionIdx
                 positionIdx+=1
-            if "proc_icd9" in args.additional_features:
-                tensors.append(torch.tensor([f.proc_icd9 for f in test_features], dtype=torch.long))
-                featurePositionDict["proc_icd9"] = positionIdx
-                positionIdx+=1
-            if "proc_ccs"  in args.additional_features:
+            if "proc_ccs"  in args.features:
                 tensors.append(torch.tensor([f.proc_ccs for f in test_features], dtype=torch.long))
                 featurePositionDict["proc_ccs"] = positionIdx
                 positionIdx+=1
-            if "ndc"       in args.additional_features:
-                tensors.append(torch.tensor([f.ndc for f in test_features], dtype=torch.long))
-                featurePositionDict["ndc"] = positionIdx
-                positionIdx+=1
-                
-            if "small_diag_icd9" in args.additional_features:
+            if "small_diag_icd9" in args.features:
                 tensors.append(torch.tensor([f.small_diag_icd9 for f in test_features], dtype=torch.long))
                 featurePositionDict["small_diag_icd9"] = positionIdx
                 positionIdx+=1
-            if "small_proc_icd9" in args.additional_features:
+            if "small_proc_icd9" in args.features:
                 tensors.append(torch.tensor([f.small_proc_icd9 for f in test_features], dtype=torch.long))
                 featurePositionDict["small_proc_icd9"] = positionIdx
                 positionIdx+=1
-            if "cui"       in args.additional_features:
+            if "cui"       in args.features:
                 tensors.append(torch.tensor([f.cui for f in test_features], dtype=torch.long))
                 featurePositionDict["cui"] = positionIdx
                 positionIdx+=1
+            # if "diag_icd9" in args.features:
+            #     tensors.append(torch.tensor([f.diag_icd9 for f in test_features], dtype=torch.long))
+            #     featurePositionDict["diag_icd9"] = positionIdx
+            #     positionIdx+=1
+            # if "proc_icd9" in args.features:
+            #     tensors.append(torch.tensor([f.proc_icd9 for f in test_features], dtype=torch.long))
+            #     featurePositionDict["proc_icd9"] = positionIdx
+            #     positionIdx+=1
+            # if "ndc"       in args.features:
+            #     tensors.append(torch.tensor([f.ndc for f in test_features], dtype=torch.long))
+            #     featurePositionDict["ndc"] = positionIdx
+            #     positionIdx+=1
+                
                 
         test_data = TensorDataset(*tensors)
 
@@ -638,47 +645,61 @@ def main():
         test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.eval_batch_size)
         model.eval()
         test_loss, test_accuracy = 0, 0
-        nb_test_steps, nb_test_examples = 0,0
+        nb_test_steps = 0
         true_labels=[]
         pred_labels=[]
         logits_history=[]
+                        
+        if "clinical_text" in args.features:
+            for input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                input_ids = input_ids.to(device)
+                input_mask = input_mask.to(device)
+                segment_ids = segment_ids.to(device)
+                label_ids = label_ids.to(device)
 
-        for input_ids, input_mask, segment_ids, label_ids, *extraFeatures in tqdm(test_dataloader, desc="Test Step"):
-            input_ids = input_ids.to(device)
-            input_mask = input_mask.to(device)
-            segment_ids = segment_ids.to(device)
-            label_ids = label_ids.to(device)
+                with torch.no_grad():
+                    if nonTextFeatures:
+                        nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                        tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                      feature_position_dict=featurePositionDict)
+                        # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                    else:
+                        tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)
+                        # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
 
-            with torch.no_grad():
-                if extraFeatures:
-                    extraFeatures = [feature.to(device) for feature in extraFeatures]
-                    tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids, additional_features_name=args.additional_features, additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
-                    # logits = model(input_ids,segment_ids,input_mask, additional_features_name=args.additional_features, additional_features_tensors=extraFeatures, feature_position_dict=featurePositionDict)
-                else:
-                    tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids)
-                    # logits = model(input_ids, segment_ids, input_mask)
-            
-            logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-            label_ids = label_ids.to('cpu').numpy()
+                logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                label_ids = label_ids.to('cpu').numpy()
+                outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+                true_labels = true_labels + label_ids.flatten().tolist()
+                pred_labels = pred_labels + outputs.flatten().tolist()
+                logits_history = logits_history + logits.flatten().tolist()
 
-            outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-            tmp_test_accuracy=np.sum(outputs == label_ids)
-            
-            true_labels = true_labels + label_ids.flatten().tolist()
-            pred_labels = pred_labels + outputs.flatten().tolist()
-            logits_history = logits_history + logits.flatten().tolist()
-       
-            test_loss += tmp_test_loss.mean().item()
-            test_accuracy += tmp_test_accuracy
+                test_loss += tmp_test_loss.mean().item()
+                nb_test_steps += 1
+                
+        else:
+            for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                label_ids = label_ids.to(device)
+                nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
 
-            nb_test_examples += input_ids.size(0)
-            nb_test_steps += 1
+                with torch.no_grad():
+                    tmp_test_loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                    # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)                    
+                        
+                logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                label_ids = label_ids.to('cpu').numpy()
+                outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+                true_labels = true_labels + label_ids.flatten().tolist()
+                pred_labels = pred_labels + outputs.flatten().tolist()
+                logits_history = logits_history + logits.flatten().tolist()
+
+                test_loss += tmp_test_loss.mean().item()
+                nb_test_steps += 1
             
         test_loss = test_loss / nb_test_steps
-        test_accuracy = test_accuracy / nb_test_examples
-        df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
+        test_accuracy = compute_accuracy(true_labels, pred_labels, all_hadm_ids, args.features)
         
-        wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy})        
+        df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
         
         string = 'test_logits_clinicalbert_'+args.readmission_mode+'_chunks.csv'
         df.to_csv(os.path.join(args.output_dir, string))
@@ -691,6 +712,8 @@ def main():
         df_out.to_csv(os.path.join(args.output_dir,string))
         
         rp80 = vote_pr_curve(df_test, logits_history, args)
+        
+        wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Recall at Precision 80 (RP80)": rp80})
         
         result = {'test_loss': test_loss,
                   'test_accuracy': test_accuracy,                 

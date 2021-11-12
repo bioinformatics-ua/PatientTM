@@ -28,6 +28,7 @@ import tempfile
 import shutil
 
 import torch
+import numpy as np
 from torch import nn
 from torch.nn import CrossEntropyLoss, BCELoss
 from torch.nn.functional import mish as Mish
@@ -80,14 +81,15 @@ class BertConfig(object):
                  max_position_embeddings=512,
                  type_vocab_size=2,
                  initializer_range=0.02,
-                 icd9_vocab_size = None,
+                 
+                 small_icd9_vocab_size = None,
                  ccs_vocab_size  = None,
-                 ndc_vocab_size  = None,
-                 icd9_hidden_size = None,
-                 ccs_hidden_size = None,
-                 ndc_hidden_size = None,
+                 cui_vocab_size  = None,
+                 embedding_hidden_size = None,
                  admittime_hidden_size = None,
-                 duration_hidden_size  = None):
+                 duration_hidden_size  = None,
+                 daystonextadmit_hidden_size = None,
+                 daystoprevadmit_hidden_size = None):
         """Constructs BertConfig.
 
         Args:
@@ -130,14 +132,15 @@ class BertConfig(object):
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
 
-            self.icd9_vocab_size = icd9_vocab_size
+            self.small_icd9_vocab_size = small_icd9_vocab_size
             self.ccs_vocab_size  = ccs_vocab_size
-            self.ndc_vocab_size  = ndc_vocab_size
-            self.icd9_hidden_size = icd9_hidden_size
-            self.ccs_hidden_size  = ccs_hidden_size
-            self.ndc_hidden_size  = ndc_hidden_size
+            self.cui_vocab_size  = cui_vocab_size
+            self.embedding_hidden_size = embedding_hidden_size
             self.admittime_hidden_size = admittime_hidden_size
             self.duration_hidden_size  = duration_hidden_size
+            self.daystonextadmit_hidden_size = daystonextadmit_hidden_size
+            self.daystoprevadmit_hidden_size = daystoprevadmit_hidden_size
+            
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
                              "or the path to a pretrained model config file (str)")
@@ -1066,106 +1069,134 @@ class BertForSequenceClassification(PreTrainedBertModel):
     logits = model(input_ids, token_type_ids, input_mask)
     ```
     """
-    def __init__(self, config, num_labels, additionalFeatures):
+    def __init__(self, config, num_labels, features):
         super(BertForSequenceClassification, self).__init__(config)
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         
-        classifier_size = config.hidden_size            
+        classifier_size = 0
         
-        if additionalFeatures is not None:
-            if "admittime" in additionalFeatures:
+        if features is not None:
+            if "clinical_text" in features:
+                classifier_size += config.hidden_size
+            if "admittime" in features:
                 classifier_size += config.admittime_hidden_size
                 self.admittime_layer = TimeLayer(config.admittime_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
-            if "daystonextadmit" in additionalFeatures:
+            if "daystonextadmit" in features:
                 classifier_size += config.daystonextadmit_hidden_size
                 self.daysnextadmit_layer = TimeLayer(config.daystonextadmit_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
-            if "duration" in additionalFeatures:
+            if "daystoprevadmit" in features:
+                classifier_size += config.daystoprevadmit_hidden_size
+                self.daysprevadmit_layer = TimeLayer(config.daystoprevadmit_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
+            if "duration" in features:
                 classifier_size += config.duration_hidden_size
                 self.duration_layer = TimeLayer(config.duration_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
                 
-            if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
-                self.icd9_embeddings_layer = EmbeddingLayer(config.icd9_vocab_size, config.icd9_hidden_size, config.hidden_dropout_prob)
-                if "diag_icd9" in additionalFeatures:
-                    classifier_size += config.hidden_size ### ALSO CHECK THAT THIS MATCHES THE OUTPUT SIZE
-        #Note: using different input and output sizes??????
-                    self.diag_icd9_layer = CodesLayer(input_hidden_size=config.icd9_hidden_size, output_hidden_size=config.hidden_size,\
-                                                max_len=config.icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)     
-                if "proc_icd9" in additionalFeatures:
-                    classifier_size += config.hidden_size ### ALSO CHECK THAT THIS MATCHES THE OUTPUT SIZE
-        #Note: using different input and output sizes??????
-                    self.proc_icd9_layer = CodesLayer(input_hidden_size=config.icd9_hidden_size, output_hidden_size=config.hidden_size,\
-                                                max_len=config.icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
-            if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
-                self.ccs_embeddings_layer = EmbeddingLayer(config.ccs_vocab_size, config.ccs_hidden_size, config.hidden_dropout_prob)
-                if "diag_ccs" in additionalFeatures:
-                    classifier_size += config.hidden_size ### ALSO CHECK THAT THIS MATCHES THE OUTPUT SIZE
-        #Note: using different input and output sizes??????
-                    self.diag_ccs_layer = CodesLayer(input_hidden_size=config.ccs_hidden_size, output_hidden_size=config.hidden_size,\
-                                                max_len=config.icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
-                if "proc_ccs" in additionalFeatures:
-                    classifier_size += config.hidden_size ### ALSO CHECK THAT THIS MATCHES THE OUTPUT SIZE
-        #Note: using different input and output sizes??????
-                    self.proc_ccs_layer = CodesLayer(input_hidden_size=config.ccs_hidden_size, output_hidden_size=config.hidden_size,\
-                                                max_len=config.icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
-            if "ndc" in additionalFeatures:
-                classifier_size += config.hidden_size ### ALSO CHECK THAT THIS MATCHES THE OUTPUT SIZE
-        #Note: using different input and output sizes??????       
-                self.ndc_embeddings_layer = EmbeddingLayer(config.ndc_vocab_size, config.ndc_hidden_size, config.hidden_dropout_prob)
-                self.ndc_layer = CodesLayer(input_hidden_size=config.ndc_hidden_size, output_hidden_size=config.hidden_size,\
-                                                max_len=config.ndc_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+            if "small_diag_icd9" in features or "small_proc_icd9" in features:
+                self.icd9_embeddings_layer = EmbeddingLayer(config.small_icd9_vocab_size, config.embedding_hidden_size,
+                                                            config.hidden_dropout_prob, pretrained_array=np.load("../data/extended/preprocessing/embeddings/small_icd9_embeddings.npy"))
+                if "small_diag_icd9" in features:
+                    classifier_size += config.hidden_size
+                    self.diag_icd9_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)     
+                if "small_proc_icd9" in features:
+                    classifier_size += config.hidden_size
+                    self.proc_icd9_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+            
+            if "diag_ccs" in features or "proc_ccs" in features:
+                self.ccs_embeddings_layer = EmbeddingLayer(config.ccs_vocab_size, config.embedding_hidden_size,
+                                                           config.hidden_dropout_prob, pretrained_array=np.load("../data/extended/preprocessing/embeddings/ccs_embeddings.npy"))
+                if "diag_ccs" in features:
+                    classifier_size += config.hidden_size
+                    self.diag_ccs_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+                if "proc_ccs" in features:
+                    classifier_size += config.hidden_size
+                    self.proc_ccs_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+            if "cui" in features:
+                classifier_size += config.hidden_size     
+                self.cui_embeddings_layer = EmbeddingLayer(config.cui_vocab_size, config.embedding_hidden_size,
+                                                           config.hidden_dropout_prob, pretrained_array=np.load("../data/extended/preprocessing/embeddings/cui_embeddings.npy"))
+                self.cui_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.cui_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
 
             # ## This is a shared layer, not a fully connected layer, hence all "features" must output tensors with the same size to go through this layer
             # self.shared_layer = SharedLayer(config)
-        
-    ## The previous definition of classifier_size might be deprecated when SharedLayer starts being used, and might require modification
-        
+          
         self.classifier = nn.Linear(classifier_size, num_labels)   
         self.apply(self.init_bert_weights)
 
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None, additional_features_name=None, additional_features_tensors=None, feature_position_dict=None):
-
-        _, bert_pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-        pooled_output2 = self.dropout(bert_pooled_output)
-
-## TODO: The shared layer shall be added next to each layer, i.e. admittime_output=admittime_layer; admittime_output=shared_layer...
-        if additional_features_name is not None:
-            if "admittime" in additional_features_name:
-                admittime_output = self.admittime_layer(additional_features_tensors[feature_position_dict["admittime"]])
-            if "daystonextadmit" in additional_features_name:
-                daysnextadmit_output = self.daysnextadmit_layer(additional_features_tensors[feature_position_dict["daystonextadmit"]])
-            if "duration" in additional_features_name:
-                duration_output = self.duration_layer(additional_features_tensors[feature_position_dict["duration"]])
-            if "diag_icd9" in additional_features_name:
-                diag_icd9_output = self.icd9_embeddings_layer(additional_features_tensors[feature_position_dict["diag_icd9"]])
+    def forward(self, input_ids=None, token_type_ids=None, attention_mask=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
+        layer_outputs = []
+        if features_name is not None:
+            if "clinical_text" in features_name:
+                _, bert_pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+                pooled_output2 = self.dropout(bert_pooled_output)
+                layer_outputs.append(pooled_output2)
+            if "admittime" in features_name:
+                admittime_output = self.admittime_layer(features_tensors[feature_position_dict["admittime"]])
+                layer_outputs.append(admittime_output)
+            if "daystonextadmit" in features_name:
+                daysnextadmit_output = self.daysnextadmit_layer(features_tensors[feature_position_dict["daystonextadmit"]])
+                layer_outputs.append(daysnextadmit_output)
+            if "daystoprevadmit" in features_name:
+                daysprevadmit_output = self.daysprevadmit_layer(features_tensors[feature_position_dict["daystoprevadmit"]])
+                layer_outputs.append(daysprevadmit_output)
+            if "duration" in features_name:
+                duration_output = self.duration_layer(features_tensors[feature_position_dict["duration"]])
+                layer_outputs.append(duration_output)
+            if "small_diag_icd9" in features_name:
+                diag_icd9_output = self.icd9_embeddings_layer(features_tensors[feature_position_dict["small_diag_icd9"]])
                 diag_icd9_output = self.diag_icd9_layer(diag_icd9_output)
-            if "proc_icd9" in additional_features_name:
-                proc_icd9_output = self.icd9_embeddings_layer(additional_features_tensors[feature_position_dict["proc_icd9"]])
+                layer_outputs.append(diag_icd9_output)
+            if "small_proc_icd9" in features_name:
+                proc_icd9_output = self.icd9_embeddings_layer(features_tensors[feature_position_dict["small_proc_icd9"]])
                 proc_icd9_output = self.proc_icd9_layer(proc_icd9_output)
-            if "diag_ccs" in additional_features_name:
-                diag_ccs_output = self.ccs_embeddings_layer(additional_features_tensors[feature_position_dict["diag_ccs"]])
+                layer_outputs.append(proc_icd9_output)
+            if "diag_ccs" in features_name:
+                diag_ccs_output = self.ccs_embeddings_layer(features_tensors[feature_position_dict["diag_ccs"]])
                 diag_ccs_output = self.diag_ccs_layer(diag_ccs_output)
-            if "proc_ccs" in additional_features_name:
-                proc_ccs_output = self.ccs_embeddings_layer(additional_features_tensors[feature_position_dict["proc_ccs"]])
+                layer_outputs.append(diag_ccs_output)
+            if "proc_ccs" in features_name:
+                proc_ccs_output = self.ccs_embeddings_layer(features_tensors[feature_position_dict["proc_ccs"]])
                 proc_ccs_output = self.proc_ccs_layer(proc_ccs_output)
-            if "ndc" in additional_features_name:
-                ndc_output = self.ndc_embeddings_layer(additional_features_tensors[feature_position_dict["ndc"]])
-                ndc_output = self.ndc_layer(ndc_output)
-   
+                layer_outputs.append(proc_ccs_output)
+            if "cui" in features_name:
+                cui_output = self.cui_embeddings_layer(features_tensors[feature_position_dict["cui"]])
+                cui_output = self.cui_layer(cui_output)
+                layer_outputs.append(cui_output)
+       
+        #Processo final de combinar? Para já concatenação, é linear.... depois bilstm-crf?
+        output = torch.cat(([i for i in layer_outputs]),dim=1)
 
-    #   processo final de combinar?
-    #   usar linear e depois bilstm-crf?
-            if "daystonextadmit" in additional_features_name:
-                # print(pooled_output2.size())
-                # print(daysnextadmit_output.size())
-                pooled_output2 = torch.cat((pooled_output2, daysnextadmit_output), dim=1)
-            if "diag_icd9" in additional_features_name:
-                # print(pooled_output2.size())
-                # print(diag_icd9_output.size())
-                pooled_output2 = torch.cat((pooled_output2, diag_icd9_output), dim=1)
+     
+    
+#             # if "admittime" in features_name:
+#             #     print(pooled_output2.size())
+#             #     print(daysnextadmit_output.size())
+#             #     pooled_output2 = torch.cat((pooled_output2, admittime_output), dim=1)
+#             if "daystonextadmit" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, daysnextadmit_output), dim=1)
+#             if "daystoprevadmit" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, daysprevadmit_output), dim=1)
+#             if "duration" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, duration_output), dim=1)
+#             if "small_diag_icd9" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, diag_icd9_output), dim=1)
+#             if "small_proc_icd9" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, proc_icd9_output), dim=1)
+#             if "diag_ccs" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, diag_ccs_output), dim=1)
+#             if "proc_ccs" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, proc_ccs_output), dim=1)
+#             if "cui" in features_name:
+#                 pooled_output2 = torch.cat((pooled_output2, cui_output), dim=1)
 
-        logits = self.classifier(pooled_output2)
+        logits = self.classifier(output)
+        
         if labels is not None:
             loss_fct = BCELoss()
             m = nn.Sigmoid()
@@ -1178,22 +1209,26 @@ class BertForSequenceClassification(PreTrainedBertModel):
 
         
         
-## To use later on
-class SharedLayer(nn.Module):
-    def __init__(self, config):
-        super(SharedLayer, self).__init__()
-        self.dense =  nn.Linear(config.shared_hidden_size, config.shared_hidden_size) # Decide layer sizes after!!!
-        self.layernorm = LayerNorm(config.shared_hidden_size)                         # Check layer sizes after!!!
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.activation = ACT2FN[config.extra_feat_act]
         
-    def forward(self, hidden_states):
-        shared_output = self.dense(hidden_states)
-        shared_output = self.activation(shared_output)
-        shared_output = self.layernorm(shared_output)
-        shared_output = self.dropout(shared_output)
-        return shared_output
+        
+# ## We already use a "shared layer" as all embeddings are from SapBERT, however this concept could be used when adding other features such as genomics or image related data
+# class SharedLayer(nn.Module):
+#     def __init__(self, config):
+#         super(SharedLayer, self).__init__()
+#         self.dense =  nn.Linear(config.shared_hidden_size, config.shared_hidden_size) # Decide layer sizes after!!!
+#         self.layernorm = LayerNorm(config.shared_hidden_size)                         # Check layer sizes after!!!
+#         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+#         self.activation = ACT2FN[config.extra_feat_act]
+        
+#     def forward(self, hidden_states):
+#         shared_output = self.dense(hidden_states)
+#         shared_output = self.activation(shared_output)
+#         shared_output = self.layernorm(shared_output)
+#         shared_output = self.dropout(shared_output)
+#         return shared_output
     
+        
+        
         
 class TimeLayer(nn.Module):
     def __init__(self, hidden_size, dropout_prob, activation):
@@ -1210,55 +1245,51 @@ class TimeLayer(nn.Module):
         layer_output = self.dropout(layer_output)
         return layer_output
         
+        
+        
     
 class EmbeddingLayer(nn.Module):
-    def __init__(self, vocab_size, hidden_size, dropout_prob):
+    def __init__(self, vocab_size, hidden_size, dropout_prob, pretrained_array=None):
         super(EmbeddingLayer, self).__init__()
-        self.word_embeddings = nn.Embedding(vocab_size, hidden_size)
-## Add position embeddings like in transformers? and or type of embeddings?
-
-## Maintain layernorm and dropout after the embedding representation is extracted?
+        if pretrained_array is not None:
+            weights = torch.from_numpy(pretrained_array)
+            self.word_embeddings = nn.Embedding.from_pretrained(weights)   
+        else:
+            self.word_embeddings = nn.Embedding(vocab_size, hidden_size)
         self.layernorm = LayerNorm(hidden_size)
         self.dropout = nn.Dropout(dropout_prob)
 
-    def forward(self, input_data):  
-        ##Consider doing something like in transformers
-        #embeddings = words_embeddings + position_embeddings + token_type_embeddings
+    def forward(self, input_data):
         layer_output = self.word_embeddings(input_data)
         layer_output = self.layernorm(layer_output)
         layer_output = self.dropout(layer_output)
         return layer_output
 
     
-## TODO: define layer sizes correctly?!? currently using some hidden_sizes
-##       output can be a vector, or the first hidden state (like in BertPooler) 
 class  CodesLayer(nn.Module):
     def __init__(self, input_hidden_size=0, output_hidden_size=0, max_len=1, dropout_prob=0.1, activation="mish"):
         super(CodesLayer, self).__init__()
-        # self.dense_1 = nn.Linear(config.icd9_hidden_size, config.icd9_hidden_size)
-        # self.layernorm_1 = LayerNorm(config.icd9_hidden_size)
-        # self.dropout_1 = nn.Dropout(config.hidden_dropout_prob)
-
-        #THIS WAS CHANGED TO WORK AS A BOTTLENECK LAYER THAT REDUCES A LIST OF CODES TO A SINGLE REPRESENTATION WITH THE SAME SIZE OF BERT OUTPUT
+        #BOTTLENECK LAYER THAT REDUCES A LIST OF CODES TO A SINGLE REPRESENTATION (EQUIVALENT TO JUST ONE CODE)
         self.dense = nn.Linear(input_hidden_size * max_len, output_hidden_size)
         self.layernorm = LayerNorm(output_hidden_size)
-        self.dropout = nn.Dropout(config.dropout_prob)
+        self.dropout = nn.Dropout(dropout_prob)
         self.activation2 = ACT2FN[activation]
         
-        ##We could implement instead something like BertPooler
-        self.dense = nn.Linear(input_hidden_size, input_hidden_size) #Same in and out size as in BertPooler
-        self.activation = nn.Tanh()
+        # ##We could implement instead something like BertPooler -> we do not have CLS tokens here, and CLS tokens would "require" a full SapBERT model
+        # self.dense = nn.Linear(input_hidden_size, input_hidden_size) #Same in and out size as in BertPooler
+        # self.activation = nn.Tanh()
 
-    def forward(self, hidden_states):
-        layer_output = self.dense(hidden_states)
+    def forward(self, input_data):
+        input_data = input_data.view(input_data.size(0),-1) #Flatten so they can go through the layer
+        layer_output = self.dense(input_data)
         layer_output = self.activation2(layer_output)
         layer_output = self.layernorm(layer_output)
         layer_output = self.dropout(layer_output)
         
-        ##Or use instead BertPooler variant
-        first_token_tensor = hidden_states[:, 0]
-        layer_output = self.dense(first_token_tensor)
-        layer_output = self.activation(layer_output)
+        # ##Or use instead BertPooler variant -> Not possible, we do not have a model for that
+        # first_token_tensor = hidden_states[:, 0]
+        # layer_output = self.dense(first_token_tensor)
+        # layer_output = self.activation(layer_output)
         
         return layer_output
 
