@@ -26,30 +26,25 @@ class InputExample(object):
         self.text_a = features["text_a"]
         self.label = features["label"]
         self.text_b = text_b
+        self.hadm_id = features["hadm_id"]
         self.admittime = None
         self.daystonextadmit = None
         self.daystoprevadmit = None
         self.duration = None
-        self.diag_icd9 = None
         self.small_diag_icd9 = None
         self.diag_ccs = None
-        self.proc_icd9 = None
         self.small_proc_icd9 = None
         self.proc_ccs = None
-        self.ndc = None
         self.cui = None
 
         if features["admittime"] is not None:       self.admittime = features["admittime"]
         if features["daystonextadmit"] is not None: self.daystonextadmit = features["daystonextadmit"]
         if features["daystoprevadmit"] is not None: self.daystoprevadmit = features["daystoprevadmit"]
         if features["duration"] is not None:        self.duration = features["duration"]
-        if features["diag_icd9"] is not None:       self.diag_icd9 = features["diag_icd9"]
         if features["small_diag_icd9"] is not None: self.small_diag_icd9 = features["small_diag_icd9"]
         if features["diag_ccs"] is not None:        self.diag_ccs = features["diag_ccs"]
-        if features["proc_icd9"] is not None:       self.proc_icd9 = features["proc_icd9"]
         if features["small_proc_icd9"] is not None: self.small_proc_icd9 = features["small_proc_icd9"]       
         if features["proc_ccs"] is not None:        self.proc_ccs = features["proc_ccs"]
-        if features["ndc"] is not None:             self.ndc = features["ndc"]
         if features["cui"] is not None:             self.cui = features["cui"]
 
 
@@ -57,23 +52,26 @@ class InputFeatures(object):
     """A single set of features of data."""
 
     def __init__(self, features):
-        self.input_ids = features["input_ids"]
-        self.input_mask = features["input_mask"]
-        self.segment_ids = features["segment_ids"]
-        self.label_id = features["label_id"]
+        if "input_ids" in features.keys():
+            self.input_ids = features["input_ids"]
+            self.input_mask = features["input_mask"]
+            self.segment_ids = features["segment_ids"]
+        else:
+            self.input_ids = None
+            self.input_mask = None
+            self.segment_ids = None
         
+        self.label_id = features["label_id"]
+        self.hadm_id = features["hadm_id"]    
         
         if "admittime" in features.keys():       self.admittime = features["admittime"]
         if "daystonextadmit" in features.keys(): self.daystonextadmit = features["daystonextadmit"]
         if "daystoprevadmit" in features.keys(): self.daystoprevadmit = features["daystoprevadmit"]
         if "duration" in features.keys():        self.duration = features["duration"]
-        if "diag_icd9" in features.keys():       self.diag_icd9 = features["diag_icd9"]
         if "small_diag_icd9" in features.keys(): self.small_diag_icd9 = features["small_diag_icd9"]
         if "diag_ccs" in features.keys():        self.diag_ccs = features["diag_ccs"]
-        if "proc_icd9" in features.keys():       self.proc_icd9 = features["proc_icd9"]
         if "small_proc_icd9" in features.keys(): self.small_proc_icd9 = features["small_proc_icd9"]  
         if "proc_ccs" in features.keys():        self.proc_ccs = features["proc_ccs"]
-        if "ndc" in features.keys():             self.ndc = features["ndc"]
         if "cui" in features.keys():             self.cui = features["cui"]
 
 
@@ -115,96 +113,78 @@ class DataProcessor(object):
         return lines
 
 class readmissionProcessor(DataProcessor):
-    def get_train_examples(self, data_dir, additional_features=None):
+    def get_train_examples(self, data_dir, features=None):
         # logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.csv")))
         return self._create_examples(
-            self._read_csv(os.path.join(data_dir, "train.csv")), "train", additional_features)
+            self._read_csv(os.path.join(data_dir, "train.csv")), "train", features)
     
-    def get_dev_examples(self, data_dir, additional_features=None):
+    def get_dev_examples(self, data_dir, features=None):
         return self._create_examples(
-            self._read_csv(os.path.join(data_dir, "val.csv")), "val", additional_features)
+            self._read_csv(os.path.join(data_dir, "val.csv")), "val", features)
     
-    def get_test_examples(self, data_dir, additional_features=None):
+    def get_test_examples(self, data_dir, features=None):
         return self._create_examples(
-            self._read_csv(os.path.join(data_dir, "test.csv")), "test", additional_features)
+            self._read_csv(os.path.join(data_dir, "test.csv")), "test", features)
     
     def get_labels(self):
         """This is only 0 or 1 for readmission prediction. Other predictive goals may need different labels"""
         return ["0", "1"]
     
-    def _create_examples(self, lines, set_type, additionalFeatures=None):
+    def _create_examples(self, lines, set_type, Features=None):
         """Creates examples for the training, dev and test sets.
-        @param additionalFeatures is a list with additional variables to be used"""
+        @param Features is a list with additional variables to be used"""
         examples = []
         for (i, line) in enumerate(lines):
             guid = "%s-%s" % (set_type, i)
             features = dict()
-            if additionalFeatures is not None:
-                if "admittime" in additionalFeatures: features["admittime"] = [line[2]]
+            if Features is not None:
+                if "admittime" in Features: features["admittime"] = [line[2]]
                 else: features["admittime"] = None
 
-                if "daystonextadmit" in additionalFeatures:
+                if "daystonextadmit" in Features:
                     features["daystonextadmit"] = line[3]
                     if pd.isna(features["daystonextadmit"]): features["daystonextadmit"] = [-1]
                     else: features["daystonextadmit"] = [float(line[3])]
                 else: features["daystonextadmit"] = None
                 
-                if "daystoprevadmit" in additionalFeatures:
+                if "daystoprevadmit" in Features:
                     features["daystoprevadmit"] = line[4]
-                    if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [-1]
+                    if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [float(32000)]
+                    elif  features["daystoprevadmit"] < 0: features["daystoprevadmit"] = [float(32000)]
                     else: features["daystoprevadmit"] = [float(line[4])]
                 else: features["daystoprevadmit"] = None
 
-                if "duration"  in additionalFeatures: features["duration"] = [float(line[5])]
+                if "duration"  in Features: features["duration"] = [float(line[5])]
                 else: features["duration"] = None
 
-                if "diag_icd9" in additionalFeatures:
-                    features["diag_icd9"] = line[6]
-                    if pd.isna(features["diag_icd9"]): features["diag_icd9"] = [0]
-                    else: features["diag_icd9"] = [int(x) for x in processString(line[6],charsToRemove = "[]\',").split(' ')]
-                else: features["diag_icd9"] = None
-
-                if "diag_ccs"  in additionalFeatures:
+                if "diag_ccs"  in Features:
                     features["diag_ccs"] = line[7]
-                    if pd.isna(features["diag_ccs"]): features["diag_ccs"] = [0]
-                    else: features["diag_ccs"] = [int(x) for x in processString(line[7],charsToRemove = "[]\' ").split(',')]
+                    if pd.isna(features["diag_ccs"]) or features["diag_ccs"] == "[]": features["diag_ccs"] = [0]
+                    else: features["diag_ccs"] = [x for x in processString(line[7],charsToRemove = "[]\' ").split(',')]
                 else: features["diag_ccs"] = None
 
-                if "proc_icd9" in additionalFeatures:
-                    features["proc_icd9"] = line[8]
-                    if pd.isna(features["proc_icd9"]): features["proc_icd9"] = [0]
-                    else: features["proc_icd9"] = [int(x) for x in processString(line[8],charsToRemove = "[]\',").split(' ')]
-                else: features["proc_icd9"] = None
-
-                if "proc_ccs"  in additionalFeatures:
+                if "proc_ccs"  in Features:
                     features["proc_ccs"] = line[9]
-                    if pd.isna(features["proc_ccs"]): features["proc_ccs"] = [0]
-                    else: features["proc_ccs"] = [int(x) for x in processString(line[9],charsToRemove = "[]\' ").split(',')]
+                    if pd.isna(features["proc_ccs"]) or features["proc_ccs"] == "[]": features["proc_ccs"] = [0]
+                    else: features["proc_ccs"] = [x for x in processString(line[9],charsToRemove = "[]\' ").split(',')]
                 else: features["proc_ccs"] = None
-
-                if "ndc" in additionalFeatures:
-                    features["ndc"] = line[10]
-                    if pd.isna(features["ndc"]): features["ndc"] = [0]
-                    else: features["ndc"] = [int(x) for x in processString(line[10],charsToRemove = "[]\' ").split(',')]
-                else: features["ndc"] = None
                 
-                
-                if "small_diag_icd9" in additionalFeatures:
+                if "small_diag_icd9" in Features:
                     features["small_diag_icd9"] = line[11]
-                    if pd.isna(features["small_diag_icd9"]): features["small_diag_icd9"] = [0]
-                    else: features["small_diag_icd9"] = [int(x) for x in processString(line[11],charsToRemove = "[]\',").split(' ')]
+                    if pd.isna(features["small_diag_icd9"]) or features["small_diag_icd9"] == "[]": features["small_diag_icd9"] = [0]
+                    else: features["small_diag_icd9"] = [x for x in processString(line[11],charsToRemove = "[]\' ").split(',')]
                 else: features["small_diag_icd9"] = None
                 
-                if "small_proc_icd9" in additionalFeatures:
+                if "small_proc_icd9" in Features:
                     features["small_proc_icd9"] = line[12]
-                    if pd.isna(features["small_proc_icd9"]): features["small_proc_icd9"] = [0]
-                    else: features["small_proc_icd9"] = [int(x) for x in processString(line[12],charsToRemove = "[]\',").split(' ')]
+                    if pd.isna(features["small_proc_icd9"]) or features["small_proc_icd9"] == "[]": features["small_proc_icd9"] = [0]
+                    else: features["small_proc_icd9"] = [x for x in processString(line[12],charsToRemove = "[]\' ").split(',')]
                 else: features["small_proc_icd9"] = None
                 
-                if "cui" in additionalFeatures:
-                    features["cui"] = line[13]
-                    if pd.isna(features["cui"]): features["cui"] = [0]
-                    else: features["cui"] = [int(x) for x in processString(line[13],charsToRemove = "[]\',").split(' ')]
+                if "cui" in Features:
+                    features["cui"] = line[13]                    
+                    if pd.isna(features["cui"]) or features["cui"] == "[]": features["cui"] = [0]
+                    else: features["cui"] = [x for x in processString(line[13],charsToRemove = "[]\' ").split(',')]
                 else: features["cui"] = None
                 
                 
@@ -213,19 +193,15 @@ class readmissionProcessor(DataProcessor):
                 features["daystonextadmit"] = None
                 features["daystoprevadmit"] = None
                 features["duration"] = None
-                features["diag_icd9"] = None
                 features["diag_ccs"] = None
-                features["proc_icd9"] = None
                 features["proc_ccs"] = None
-                features["ndc"] = None
                 features["small_diag_icd9"] = None
                 features["small_proc_icd9"] = None
                 features["cui"] = None
 
+            features["hadm_id"] = line[1]
             features["label"] = str(int(line[14]))
             features["text_a"] = line[15]
-            # features["label"] = str(int(line[1]))
-            # features["text_a"] = line[2]
 
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))
@@ -241,6 +217,7 @@ def convertToIds(feature, idsMappingDict):
     # featureIds=[]
     # for entry in feature:
     #     featureIds.append(idsMappingDict[str(entry)])
+    #     print(entry)
     # return featureIds
     return [idsMappingDict[str(entry)] for entry in feature]
 
@@ -261,31 +238,21 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
         else:
             tokens_b.pop()
 
-def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, additionalFeatures, maxLenDict):
+def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, Features, maxLenDict):
     """Loads a data file into a list of `InputBatch`s."""
 
-    if additionalFeatures is not None:
+    if Features is not None:
         """Load the mapping dictionaries for additional features, to be used later to convert to ids"""
-        if "diag_icd9" in additionalFeatures or "proc_icd9" in additionalFeatures:
-            with open("../data/extended/preprocessing/idxFiles/Icd9ToIdx.json","r") as file:
-                icd9MappingDict = json.load(file)
+        if "small_diag_icd9" in Features or "small_proc_icd9" in Features:
+            with open("../data/extended/preprocessing/idxFiles/smallIcd9ToIdx.json","r") as file:
+                smallIcd9MappingDict = json.load(file)
 
-        if "diag_ccs" in additionalFeatures or "proc_ccs" in additionalFeatures:
+        if "diag_ccs" in Features or "proc_ccs" in Features:
             with open("../data/extended/preprocessing/idxFiles/CCSToIdx.json","r") as file:
                 ccsMappingDict = json.load(file)
 
-        if "ndc" in additionalFeatures:
-            with open("../data/extended/preprocessing/idxFiles/NDCToIdx.json","r") as file:
-                ndcMappingDict = json.load(file)
-                
-                
-                
-        if "small_diag_icd9" in additionalFeatures or "small_proc_icd9" in additionalFeatures:
-            with open("../data/extended/preprocessing/idxFiles/smallIcd9ToIdx.json","r") as file:
-                smallIcd9MappingDict = json.load(file)
-        
-        if "cui" in additionalFeatures:
-            with open("../data/extended/cui_NDCToIdx.json","r") as file:
+        if "cui" in Features:
+            with open("../data/extended/preprocessing/idxFiles/cui_NDCToIdx.json","r") as file:
                 cuiMappingDict = json.load(file)
 
     label_map = {}
@@ -294,138 +261,121 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
 
     features = []
     for (ex_index, example) in enumerate(examples):
-        tokens_a = tokenizer.tokenize(example.text_a)
-
-        tokens_b = None
-        if example.text_b:
-            tokens_b = tokenizer.tokenize(example.text_b)
-
-        if tokens_b:
-            # Modifies `tokens_a` and `tokens_b` in place so that the total
-            # length is less than the specified length.
-            # Account for [CLS], [SEP], [SEP] with "- 3"
-            _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
-        else:
-            # Account for [CLS] and [SEP] with "- 2"
-            if len(tokens_a) > max_seq_length - 2:
-                tokens_a = tokens_a[0:(max_seq_length - 2)]
-
-        # The convention in BERT is:
-        # (a) For sequence pairs:
-        #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
-        #  type_ids: 0   0  0    0    0     0       0 0    1  1  1  1   1 1
-        # (b) For single sequences:
-        #  tokens:   [CLS] the dog is hairy . [SEP]
-        #  type_ids: 0   0   0   0  0     0 0
-        #
-        # Where "type_ids" are used to indicate whether this is the first
-        # sequence or the second sequence. The embedding vectors for `type=0` and
-        # `type=1` were learned during pre-training and are added to the wordpiece
-        # embedding vector (and position vector). This is not *strictly* necessary
-        # since the [SEP] token unambigiously separates the sequences, but it makes
-        # it easier for the model to learn the concept of sequences.
-        #
-        # For classification tasks, the first vector (corresponding to [CLS]) is
-        # used as as the "sentence vector". Note that this only makes sense because
-        # the entire model is fine-tuned.
-        tokens = []
-        segment_ids = []
-        tokens.append("[CLS]")
-        segment_ids.append(0)
-        for token in tokens_a:
-            tokens.append(token)
-            segment_ids.append(0)
-        tokens.append("[SEP]")
-        segment_ids.append(0)
-
-        if tokens_b:
-            for token in tokens_b:
-                tokens.append(token)
-                segment_ids.append(1)
-            tokens.append("[SEP]")
-            segment_ids.append(1)
-
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
-
-        # The mask has 1 for real tokens and 0 for padding tokens. Only real
-        # tokens are attended to.
-        input_mask = [1] * len(input_ids)
-
-        # Zero-pad up to the sequence length.
-        while len(input_ids) < max_seq_length:
-            input_ids.append(0)
-            input_mask.append(0)
-            segment_ids.append(0)
-
-        assert len(input_ids) == max_seq_length
-        assert len(input_mask) == max_seq_length
-        assert len(segment_ids) == max_seq_length
-        #print (example.label)
-        label_id = label_map[example.label]
-
-        if ex_index < 2:
-            logger.info("*** Example ***")
-            logger.info("guid: %s" % (example.guid))
-            logger.info("tokens: %s" % " ".join(
-                    [str(x) for x in tokens]))
-            logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-            logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-            logger.info(
-                    "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-            logger.info("label: %s (id = %d)" % (example.label, label_id))
-
         feature = dict()
-        feature["input_ids"]=input_ids
-        feature["input_mask"]=input_mask
-        feature["segment_ids"]=segment_ids
-        feature["label_id"]=label_id
-        # if additionalFeatures is not None:
-        #     if "admittime" in additionalFeatures: feature["admittime"] = example.admittime
-        #     if "duration"  in additionalFeatures: feature["duration"] = example.duration
-        #     if "diag_icd9" in additionalFeatures: feature["diag_icd9"] = convertToIds(example.diag_icd9, icd9MappingDict)
-        #     if "diag_ccs"  in additionalFeatures: feature["diag_ccs"] = convertToIds(example.diag_ccs, ccsMappingDict)
-        #     if "proc_icd9" in additionalFeatures: feature["proc_icd9"] = convertToIds(example.proc_icd9, icd9MappingDict)
-        #     if "proc_ccs"  in additionalFeatures: feature["proc_ccs"] = convertToIds(example.proc_ccs, ccsMappingDict)
-        #     if "ndc"       in additionalFeatures: feature["ndc"] = convertToIds(example.ndc, ndcMappingDict)
+        
+        if "clinical_text" in Features:
+            tokens_a = tokenizer.tokenize(example.text_a)
 
-        if additionalFeatures is not None:
-            if "admittime" in additionalFeatures: feature["admittime"] = example.admittime
-            if "daystonextadmit" in additionalFeatures: feature["daystonextadmit"] = example.daystonextadmit
-            if "daystoprevadmit" in additionalFeatures: feature["daystoprevadmit"] = example.daystoprevadmit
-            if "duration"  in additionalFeatures: feature["duration"] = example.duration
-            if "diag_icd9" in additionalFeatures:
-                feature["diag_icd9"] = convertToIds(example.diag_icd9, icd9MappingDict)
-                while len(feature["diag_icd9"]) < maxLenDict["icd9_ccs_maxlen"]:
-                    feature["diag_icd9"].append(0)
-            if "diag_ccs"  in additionalFeatures:
-                feature["diag_ccs"] = convertToIds(example.diag_ccs, ccsMappingDict)
-                while len(feature["diag_ccs"]) < maxLenDict["icd9_ccs_maxlen"]:
-                    feature["diag_ccs"].append(0)
-            if "proc_icd9" in additionalFeatures:
-                feature["proc_icd9"] = convertToIds(example.proc_icd9, icd9MappingDict)
-                while len(feature["proc_icd9"]) < maxLenDict["icd9_ccs_maxlen"]:
-                    feature["proc_icd9"].append(0)
-            if "proc_ccs"  in additionalFeatures:
-                feature["proc_ccs"] = convertToIds(example.proc_ccs, ccsMappingDict)
-                while len(feature["proc_ccs"]) < maxLenDict["icd9_ccs_maxlen"]:
-                    feature["proc_ccs"].append(0)
-            if "ndc" in additionalFeatures:
-                feature["ndc"] = convertToIds(example.ndc, ndcMappingDict)
-                while len(feature["ndc"]) < maxLenDict["ndc_maxlen"]:
-                    feature["ndc"].append(0)
-                    
-            if "small_diag_icd9" in additionalFeatures:
-                feature["small_diag_icd9"] = convertToIds(example.small_diag_icd9, smallIcd9MappingDict)
-                while len(feature["small_diag_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
-                    feature["small_diag_icd9"].append(0)
-            if "small_proc_icd9" in additionalFeatures:
-                feature["small_proc_icd9"] = convertToIds(example.small_proc_icd9, smallIcd9MappingDict)
-                while len(feature["small_proc_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
-                    feature["small_proc_icd9"].append(0)
-            if "cui" in additionalFeatures:
-                feature["cui"] = convertToIds(example.cui, cuiMappingDict)
-                while len(feature["cui"]) < maxLenDict["cui_maxlen"]:
-                    feature["cui"].append(0)
+            tokens_b = None
+            if example.text_b:
+                tokens_b = tokenizer.tokenize(example.text_b)
+
+            if tokens_b:
+                # Modifies `tokens_a` and `tokens_b` in place so that the total
+                # length is less than the specified length.
+                # Account for [CLS], [SEP], [SEP] with "- 3"
+                _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
+            else:
+                # Account for [CLS] and [SEP] with "- 2"
+                if len(tokens_a) > max_seq_length - 2:
+                    tokens_a = tokens_a[0:(max_seq_length - 2)]
+
+            # The convention in BERT is:
+            # (a) For sequence pairs:
+            #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
+            #  type_ids: 0   0  0    0    0     0       0 0    1  1  1  1   1 1
+            # (b) For single sequences:
+            #  tokens:   [CLS] the dog is hairy . [SEP]
+            #  type_ids: 0   0   0   0  0     0 0
+            #
+            # Where "type_ids" are used to indicate whether this is the first
+            # sequence or the second sequence. The embedding vectors for `type=0` and
+            # `type=1` were learned during pre-training and are added to the wordpiece
+            # embedding vector (and position vector). This is not *strictly* necessary
+            # since the [SEP] token unambigiously separates the sequences, but it makes
+            # it easier for the model to learn the concept of sequences.
+            #
+            # For classification tasks, the first vector (corresponding to [CLS]) is
+            # used as as the "sentence vector". Note that this only makes sense because
+            # the entire model is fine-tuned.
+            tokens = []
+            segment_ids = []
+            tokens.append("[CLS]")
+            segment_ids.append(0)
+            for token in tokens_a:
+                tokens.append(token)
+                segment_ids.append(0)
+            tokens.append("[SEP]")
+            segment_ids.append(0)
+
+            if tokens_b:
+                for token in tokens_b:
+                    tokens.append(token)
+                    segment_ids.append(1)
+                tokens.append("[SEP]")
+                segment_ids.append(1)
+
+            input_ids = tokenizer.convert_tokens_to_ids(tokens)
+
+            # The mask has 1 for real tokens and 0 for padding tokens. Only real
+            # tokens are attended to.
+            input_mask = [1] * len(input_ids)
+
+            # Zero-pad up to the sequence length.
+            while len(input_ids) < max_seq_length:
+                input_ids.append(0)
+                input_mask.append(0)
+                segment_ids.append(0)
+
+            assert len(input_ids) == max_seq_length
+            assert len(input_mask) == max_seq_length
+            assert len(segment_ids) == max_seq_length
+            #print (example.label)
+            label_id = label_map[example.label]
+
+            if ex_index < 2:
+                logger.info("*** Example ***")
+                logger.info("guid: %s" % (example.guid))
+                logger.info("tokens: %s" % " ".join(
+                        [str(x) for x in tokens]))
+                logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+                logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
+                logger.info(
+                        "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+                logger.info("label: %s (id = %d)" % (example.label, label_id))
+
+            feature["input_ids"]=input_ids
+            feature["input_mask"]=input_mask
+            feature["segment_ids"]=segment_ids
+        
+        label_id = label_map[example.label]
+        feature["label_id"]=label_id
+        feature["hadm_id"]=example.hadm_id
+
+        if "admittime" in Features: feature["admittime"] = example.admittime
+        if "daystonextadmit" in Features: feature["daystonextadmit"] = example.daystonextadmit
+        if "daystoprevadmit" in Features: feature["daystoprevadmit"] = example.daystoprevadmit
+        if "duration"  in Features: feature["duration"] = example.duration
+        if "diag_ccs"  in Features:
+            feature["diag_ccs"] = convertToIds(example.diag_ccs, ccsMappingDict)
+            while len(feature["diag_ccs"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["diag_ccs"].append(0)
+        if "proc_ccs"  in Features:
+            feature["proc_ccs"] = convertToIds(example.proc_ccs, ccsMappingDict)
+            while len(feature["proc_ccs"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["proc_ccs"].append(0)
+        if "small_diag_icd9" in Features:
+            feature["small_diag_icd9"] = convertToIds(example.small_diag_icd9, smallIcd9MappingDict)
+            while len(feature["small_diag_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["small_diag_icd9"].append(0)
+        if "small_proc_icd9" in Features:
+            feature["small_proc_icd9"] = convertToIds(example.small_proc_icd9, smallIcd9MappingDict)
+            while len(feature["small_proc_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["small_proc_icd9"].append(0)
+        if "cui" in Features:
+            feature["cui"] = convertToIds(example.cui, cuiMappingDict)
+            while len(feature["cui"]) < maxLenDict["cui_maxlen"]:
+                feature["cui"].append(0)
 
         features.append(InputFeatures(feature))
     return features
