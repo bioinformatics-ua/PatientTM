@@ -1,0 +1,26 @@
+{
+  "attention_probs_dropout_prob": 0.1,
+  "hidden_act": "gelu",
+  "hidden_dropout_prob": 0.1,
+  "hidden_size": 768,
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "max_position_embeddings": 512,
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "type_vocab_size": 2,
+  "vocab_size": 30522,
+  "icd9_vocab_size": 19178,
+  "ccs_vocab_size": 239,
+  "ndc_vocab_size": 237343,
+  "icd9_hidden_size": 50,
+  "ccs_hidden_size": 50,
+  "ndc_hidden_size": 50,
+  "admittime_hidden_size": 50,
+  "duration_hidden_size": 50,
+  "daystonextadmit_hidden_size": 50,
+  "icd9_ccs_maxlen": 40,
+  "ndc_maxlen": 200,
+  "extra_feat_act": "mish"
+}
+
