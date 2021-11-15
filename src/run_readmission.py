@@ -1,4 +1,7 @@
 # coding=utf-8
+# AUTHOR: JOÃO F SILVA
+# ADAPTED FROM:
+#
 # Copyright 2018 The Google AI Language Team Authors and The HugginFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,7 +15,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""BERT finetuning runner."""
+
 
 from __future__ import absolute_import
 from __future__ import division
@@ -22,7 +25,6 @@ import csv
 import os
 import shutil
 import logging
-import argparse
 import random
 import pandas as pd
 import numpy as np
@@ -81,120 +83,7 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
     return is_nan
 
 
-def main():
-    parser = argparse.ArgumentParser()
-
-    ## Required parameters
-    parser.add_argument("--data_dir",
-                        default=None,
-                        type=str,
-                        required=True,
-                        help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
-    parser.add_argument("--bert_model", default=None, type=str, required=True,
-                        help="Bert pre-trained model selected in the list: bert-base-uncased, "
-                             "bert-large-uncased, bert-base-cased, bert-base-multilingual, bert-base-chinese.")
-    
-    parser.add_argument("--readmission_mode", default = None, type=str, help="early notes or discharge summary")
-    
-    parser.add_argument("--task_name",
-                        default=None,
-                        type=str,
-                        required=True,
-                        help="The name of the task to train.")
-    parser.add_argument("--output_dir",
-                        default=None,
-                        type=str,
-                        required=True,
-                        help="The output directory where the model checkpoints will be written.")
-
-    ## Other parameters
-    parser.add_argument("--max_seq_length",
-                        default=128,
-                        type=int,
-                        help="The maximum total input sequence length after WordPiece tokenization. \n"
-                             "Sequences longer than this will be truncated, and sequences shorter \n"
-                             "than this will be padded.")
-    parser.add_argument("--do_train",
-                        default=False,
-                        action='store_true',
-                        help="Whether to run training.")
-    parser.add_argument("--do_eval",
-                        default=False,
-                        action='store_true',
-                        help="Whether to run eval on the dev set.")
-    parser.add_argument("--train_batch_size",
-                        default=32,
-                        type=int,
-                        help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size",
-                        default=2,
-                        type=int,
-                        help="Total batch size for eval.")
-    parser.add_argument("--learning_rate",
-                        default=5e-5,
-                        type=float,
-                        help="The initial learning rate for Adam.")
-    parser.add_argument("--num_train_epochs",
-                        default=3.0,
-                        type=float,
-                        help="Total number of training epochs to perform.")
-    parser.add_argument("--warmup_proportion",
-                        default=0.1,
-                        type=float,
-                        help="Proportion of training to perform linear learning rate warmup for. "
-                             "E.g., 0.1 = 10%% of training.")
-    parser.add_argument("--no_cuda",
-                        default=False,
-                        action='store_true',
-                        help="Whether not to use CUDA when available")
-    parser.add_argument("--local_rank",
-                        type=int,
-                        default=-1,
-                        help="local_rank for distributed training on gpus")
-    parser.add_argument('--seed', 
-                        type=int, 
-                        default=42,
-                        help="random seed for initialization")
-    parser.add_argument('--gradient_accumulation_steps',
-                        type=int,
-                        default=1,
-                        help="Number of updates steps to accumulate before performing a backward/update pass.")                       
-    parser.add_argument('--optimize_on_cpu',
-                        default=False,
-                        action='store_true',
-                        help="Whether to perform optimization and keep the optimizer averages on CPU")
-    parser.add_argument('--fp16',
-                        default=False,
-                        action='store_true',
-                        help="Whether to use 16-bit float precision instead of 32-bit")
-    parser.add_argument('--loss_scale',
-                        type=float, default=128,
-                        help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-    parser.add_argument('-feat','--features',
-                        default=None,
-                        nargs="*",
-                        type=str,
-                        choices=["clinical_text", "admittime", "daystonextadmit", "daystoprevadmit", "duration", "diag_ccs", "proc_ccs", "small_diag_icd9",
-                                "small_proc_icd9", "cui"], #"proc_icd9", "diag_icd9", "ndc"],
-                        help='Features to use as model input. Please select one or more of the following inputs: [clinical_text, admittime, daystonextadmit, daystoprevadmit, duration, diag_ccs, proc_ccs, small_diag_icd9, small_proc_icd9, cui')
-    parser.add_argument('--small_icd9_ccs_maxlength',
-                        type=int,
-                        default=39,
-                        help="max length for icd9 and ccs tensors")
-    parser.add_argument('--cui_maxlength',
-                        type=int,
-                        default=47,
-                        help="max length for cui tensors")
-    parser.add_argument('--freeze_bert',
-                        default=False,
-                        action='store_true',
-                        help="Whether to freeze parameters from BERT layers or not. When frozen, these are not updated during model training.")
-    parser.add_argument('--early_stop',
-                        default=False,
-                        action='store_true',
-                        help="Save a model checkpoint using early stopping to prevent the saving of overfiting models.")
-
-    args = parser.parse_args()
+def runReadmission(args):
     
     logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -536,7 +425,7 @@ def main():
                 val_accuracy += np.sum(outputs == label_ids)
                 val_loss += loss.mean().item()
                 nb_val_steps += 1
-                nb_val_examples += label_ids.size(0)
+                nb_val_examples += label_ids.size
                 
             if "clinical_text" in args.features:
                 val_accuracy /= nb_val_examples 
@@ -708,7 +597,7 @@ def main():
                 test_accuracy += np.sum(outputs == label_ids)
                 test_loss += tmp_test_loss.mean().item()
                 nb_test_steps += 1
-                nb_test_examples += label_ids.size(0)
+                nb_test_examples += label_ids.size
                 
         else:
             for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
@@ -729,7 +618,7 @@ def main():
                 test_accuracy += np.sum(outputs == label_ids)
                 test_loss += tmp_test_loss.mean().item()
                 nb_test_steps += 1
-                nb_test_examples += label_ids.size(0)
+                nb_test_examples += label_ids.size
             
             
         if "clinical_text" in args.features:
@@ -774,7 +663,3 @@ def main():
     ##Close the run by finishing it
     wandb.finish()
         
-        
-        
-if __name__ == "__main__":
-    main()
