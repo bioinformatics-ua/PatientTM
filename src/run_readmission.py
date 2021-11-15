@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import csv
 import os
+import shutil
 import logging
 import argparse
 import random
@@ -32,6 +33,7 @@ from datetime import datetime
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
+from sklearn.metrics import precision_recall_fscore_support
 
 # from scipy import interp
 
@@ -47,7 +49,7 @@ from ranger21 import Ranger21 as RangerOptimizer
 
 from modeling_readmission import BertForSequenceClassification, BertForSequenceClassificationOriginal
 from data_processor import convert_examples_to_features, readmissionProcessor
-from evaluation import vote_score, vote_pr_curve, compute_accuracy
+from evaluation import vote_score, vote_pr_curve, compute_accuracy_noclinicaltext
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -244,12 +246,16 @@ def main():
         raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
     args.output_dir = os.path.join(args.output_dir,current_time+run_name)
-
+    
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
         raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
     os.makedirs(args.output_dir, exist_ok=True)
 
     task_name = args.task_name.lower()
+    
+    # Copying the config file to the output dir to save the used model configurations there
+    config_file = os.path.join(args.bert_model, "bert_config.json")
+    shutil.copy(config_file, args.output_dir)
 
     if task_name not in processors:
         raise ValueError("Task not found: %s" % (task_name))
@@ -465,6 +471,8 @@ def main():
                 loss.backward()
                 train_loss_history.append(loss.item())
                 train_loss += loss.item()
+                wandb.log({"Training step loss": loss.item()})
+                
                 nb_tr_steps += 1
                 if (step + 1) % args.gradient_accumulation_steps == 0:
                     if args.fp16 or args.optimize_on_cpu:
@@ -493,7 +501,7 @@ def main():
             model.eval()
             m = nn.Sigmoid()            
             val_loss, val_accuracy = 0, 0
-            nb_val_steps = 0
+            nb_val_steps, nb_val_examples = 0, 0
             true_labels=[]
             pred_labels=[]
             logits_history = []
@@ -525,17 +533,24 @@ def main():
                 pred_labels = pred_labels + outputs.flatten().tolist()
                 logits_history = logits_history + logits.flatten().tolist()
 
+                val_accuracy += np.sum(outputs == label_ids)
                 val_loss += loss.mean().item()
-                nb_val_steps += 1      
-
-            val_loss = val_loss/nb_val_steps            
-            val_accuracy = compute_accuracy(true_labels, pred_labels, val_all_hadm_ids, args.features)
-
+                nb_val_steps += 1
+                nb_val_examples += label_ids.size(0)
+                
+            if "clinical_text" in args.features:
+                val_accuracy /= nb_val_examples 
+            else:           
+                val_accuracy = compute_accuracy_noclinicaltext(true_labels, pred_labels, val_all_hadm_ids)
+            val_loss = val_loss/nb_val_steps
+            
             df_val = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
             fpr, tpr, df_out = vote_score(df_val, logits_history, args)
             string = 'validation_logits_clinicalbert_'+args.readmission_mode+'_readmissions.csv'
             df_out.to_csv(os.path.join(args.output_dir,string))
-        
+            
+            precision, recall, f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
+            print(f'Precision {precision[1]}, Recall {recall[1]}, F1-Score {f1score[1]}') #The first entry is for class 0, the second for class 1
             rp80 = vote_pr_curve(df_val, logits_history, args)
 
             wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": rp80}) 
@@ -557,6 +572,22 @@ def main():
         plt.plot(train_loss_history)
         fig_name = os.path.join(args.output_dir, 'train_loss_history.png')
         fig1.savefig(fig_name, dpi=fig1.dpi)
+        
+        result = {'Validation loss': val_loss,
+                  'Validation accuracy': val_accuracy,
+                  # 'global_step': global_step_check,
+                  'Training loss': train_loss/number_training_steps,
+                  'RP80': rp80,
+                  'Precision': precision[1],
+                  'Recall': recall[1],
+                  'F1-Score': f1score[1]}
+        
+        output_val_file = os.path.join(args.output_dir, "validation_results.txt")
+        with open(output_val_file, "w") as writer:
+            logger.info("***** Validation results *****")
+            for key in sorted(result.keys()):
+                logger.info("  %s = %s", key, str(result[key]))
+                writer.write("%s = %s\n" % (key, str(result[key])))
     
     
     
@@ -645,7 +676,7 @@ def main():
         test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.eval_batch_size)
         model.eval()
         test_loss, test_accuracy = 0, 0
-        nb_test_steps = 0
+        nb_test_steps, nb_test_examples = 0, 0
         true_labels=[]
         pred_labels=[]
         logits_history=[]
@@ -673,9 +704,11 @@ def main():
                 true_labels = true_labels + label_ids.flatten().tolist()
                 pred_labels = pred_labels + outputs.flatten().tolist()
                 logits_history = logits_history + logits.flatten().tolist()
-
+                
+                test_accuracy += np.sum(outputs == label_ids)
                 test_loss += tmp_test_loss.mean().item()
                 nb_test_steps += 1
+                nb_test_examples += label_ids.size(0)
                 
         else:
             for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
@@ -693,11 +726,17 @@ def main():
                 pred_labels = pred_labels + outputs.flatten().tolist()
                 logits_history = logits_history + logits.flatten().tolist()
 
+                test_accuracy += np.sum(outputs == label_ids)
                 test_loss += tmp_test_loss.mean().item()
                 nb_test_steps += 1
+                nb_test_examples += label_ids.size(0)
             
+            
+        if "clinical_text" in args.features:
+            test_accuracy /= nb_test_examples 
+        else:               
+            test_accuracy = compute_accuracy_noclinicaltext(true_labels, pred_labels, all_hadm_ids)
         test_loss = test_loss / nb_test_steps
-        test_accuracy = compute_accuracy(true_labels, pred_labels, all_hadm_ids, args.features)
         
         df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
         
@@ -711,15 +750,19 @@ def main():
         string = 'test_logits_clinicalbert_'+args.readmission_mode+'_readmissions.csv'
         df_out.to_csv(os.path.join(args.output_dir,string))
         
+        precision, recall, f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
         rp80 = vote_pr_curve(df_test, logits_history, args)
         
         wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Recall at Precision 80 (RP80)": rp80})
         
-        result = {'test_loss': test_loss,
-                  'test_accuracy': test_accuracy,                 
-                  'global_step': global_step_check,
-                  'training loss': train_loss/number_training_steps,
-                  'RP80': rp80}
+        result = {'Test loss': test_loss,
+                  'Test accuracy': test_accuracy,                 
+                  # 'global_step': global_step_check,
+                  'RP80': rp80,
+                  'Precision': precision[1],
+                  'Recall': recall[1],
+                  
+                  'F1-Score': f1score[1]}
         
         output_test_file = os.path.join(args.output_dir, "test_results.txt")
         with open(output_test_file, "w") as writer:
