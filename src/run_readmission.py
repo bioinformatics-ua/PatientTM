@@ -131,9 +131,6 @@ def runReadmission(args):
     if n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
-    if not args.do_train and not args.do_eval:
-        raise ValueError("At least one of `do_train` or `do_eval` must be True.")
-
     args.output_dir = os.path.join(args.output_dir,current_time+run_name)
     
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
@@ -480,14 +477,14 @@ def runReadmission(args):
     
     
     
-    if args.do_eval:
+    if args.do_test:
         m = nn.Sigmoid()
         test_examples = processor.get_test_examples(args.data_dir, args.features)
         test_features = convert_examples_to_features(
             test_examples, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict)
-        logger.info("***** Running evaluation *****")
+        logger.info("***** Running testing *****")
         logger.info("  Num examples = %d", len(test_examples))
-        logger.info("  Batch size = %d", args.eval_batch_size)
+        logger.info("  Batch size = %d", args.test_batch_size)
         
         if "clinical_text" in args.features:
             all_hadm_ids  = [f.hadm_id for f in test_features]
@@ -562,7 +559,7 @@ def runReadmission(args):
             test_sampler = SequentialSampler(test_data)
         else:
             test_sampler = DistributedSampler(test_data)
-        test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.eval_batch_size)
+        test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
         model.eval()
         test_loss, test_accuracy = 0, 0
         nb_test_steps, nb_test_examples = 0, 0
