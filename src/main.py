@@ -42,7 +42,7 @@ def help(show=False):
                         default=False,
                         action='store_true',
                         help="Whether to run model training.")
-    parser.add_argument("--do_eval",
+    parser.add_argument("--do_test",
                         default=False,
                         action='store_true',
                         help="Whether to run a testing phase on the test set.")
@@ -50,7 +50,7 @@ def help(show=False):
                         default=32,
                         type=int,
                         help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size",
+    parser.add_argument("--test_batch_size",
                         default=2,
                         type=int,
                         help="Total batch size for test.")
