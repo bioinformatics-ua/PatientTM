@@ -149,8 +149,6 @@ def runReadmission(args):
     processor = processors[task_name]()
     label_list = processor.get_labels()
 
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-
     model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
     # model = BertForSequenceClassificationOriginal.from_pretrained(args.bert_model, 1)
     
@@ -179,10 +177,14 @@ def runReadmission(args):
         
     if args.do_train:
 
-        #if freeze_bert:
+        ##if freeze_bert:
         for name, param in model.named_parameters():
             if name.startswith("bert"): # classifier.weight; classifier.bias
+                # print(name, param.type())            
                 param.requires_grad = False
+                param = param.cpu() # Force the unused parameters to the cpu, to free GPU space for other things
+                # print(name, param.type())  
+
 
         # Prepare optimizer
         if args.fp16:
@@ -204,26 +206,22 @@ def runReadmission(args):
         
         num_train_steps = int(len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
         
-        train_features = convert_examples_to_features(train_examples, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict)
-        val_features   = convert_examples_to_features(val_examples, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict)
+        train_features = convert_examples_to_features(train_examples, label_list, args.features, maxLenDict)
+        val_features   = convert_examples_to_features(val_examples, label_list, args.features, maxLenDict)
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_steps)
         
         if "clinical_text" in args.features:
-            train_all_input_ids   = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-            train_all_input_mask  = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-            train_all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-            train_all_label_ids   = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-            train_tensors = [train_all_input_ids, train_all_input_mask, train_all_segment_ids, train_all_label_ids]
+            train_precomputed_text   = torch.tensor([f.clinical_text for f in train_features], dtype=torch.float)
+            train_all_label_ids      = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+            train_tensors = [train_precomputed_text, train_all_label_ids]
 
-            val_all_hadm_ids    = [f.hadm_id for f in val_features]
-            val_all_input_ids   = torch.tensor([f.input_ids for f in val_features], dtype=torch.long)
-            val_all_input_mask  = torch.tensor([f.input_mask for f in val_features], dtype=torch.long)
-            val_all_segment_ids = torch.tensor([f.segment_ids for f in val_features], dtype=torch.long)
-            val_all_label_ids   = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
-            val_tensors = [val_all_input_ids, val_all_input_mask, val_all_segment_ids, val_all_label_ids]
+            val_all_hadm_ids      = [f.hadm_id for f in val_features]
+            val_precomputed_text  = torch.tensor([f.clinical_text for f in val_features], dtype=torch.float)
+            val_all_label_ids     = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
+            val_tensors = [val_precomputed_text, val_all_label_ids]
         else:
             train_all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
             train_tensors = [train_all_label_ids]
@@ -328,17 +326,15 @@ def runReadmission(args):
                 # batch = tuple(t.to(device) for t in batch)
                 #
                 if "clinical_text" in args.features:
-                    input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures = batch
-                    input_ids = input_ids.to(device)
-                    input_mask = input_mask.to(device)
-                    segment_ids = segment_ids.to(device)
+                    precomputed_texts, label_ids, *nonTextFeatures = batch
+                    precomputed_texts = precomputed_texts.to(device)
                     label_ids = label_ids.to(device)     
                     if nonTextFeatures:
                         nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                        loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
                                              feature_position_dict=featurePositionDict) 
                     else:
-                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)
+                        loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
                 else:
                     label_ids, *nonTextFeatures = batch
                     label_ids = label_ids.to(device) 
@@ -395,17 +391,15 @@ def runReadmission(args):
                 ## Turning off gradient computation for safety
                 with torch.no_grad():
                     if "clinical_text" in args.features:
-                        input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures = batch
-                        input_ids = input_ids.to(device)
-                        input_mask = input_mask.to(device)
-                        segment_ids = segment_ids.to(device)
+                        precomputed_texts, label_ids, *nonTextFeatures = batch
+                        precomputed_texts = precomputed_texts.to(device)
                         label_ids = label_ids.to(device)    
                         if nonTextFeatures:
                             nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                            loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                            loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
                                                  feature_position_dict=featurePositionDict) 
                         else:
-                            loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)
+                            loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
                     else:
                         label_ids, *nonTextFeatures = batch
                         label_ids = label_ids.to(device) 
@@ -480,19 +474,16 @@ def runReadmission(args):
     if args.do_test:
         m = nn.Sigmoid()
         test_examples = processor.get_test_examples(args.data_dir, args.features)
-        test_features = convert_examples_to_features(
-            test_examples, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict)
+        test_features = convert_examples_to_features(test_examples, label_list, args.features, maxLenDict)
         logger.info("***** Running testing *****")
         logger.info("  Num examples = %d", len(test_examples))
         logger.info("  Batch size = %d", args.test_batch_size)
         
         if "clinical_text" in args.features:
             all_hadm_ids  = [f.hadm_id for f in test_features]
-            all_input_ids = torch.tensor([f.input_ids for f in test_features], dtype=torch.long)
-            all_input_mask = torch.tensor([f.input_mask for f in test_features], dtype=torch.long)
-            all_segment_ids = torch.tensor([f.segment_ids for f in test_features], dtype=torch.long)
+            all_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
             all_label_ids = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-            tensors = [all_input_ids, all_input_mask, all_segment_ids, all_label_ids]
+            tensors = [all_precomputed_texts, all_label_ids]
         else:
             all_hadm_ids = [f.hadm_id for f in test_features]
             all_label_ids = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
@@ -568,20 +559,18 @@ def runReadmission(args):
         logits_history=[]
                         
         if "clinical_text" in args.features:
-            for input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
-                input_ids = input_ids.to(device)
-                input_mask = input_mask.to(device)
-                segment_ids = segment_ids.to(device)
+            for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                precomputed_texts = precomputed_texts.to(device)
                 label_ids = label_ids.to(device)
 
                 with torch.no_grad():
                     if nonTextFeatures:
                         nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                        tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                        tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
                                                       feature_position_dict=featurePositionDict)
                         # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
                     else:
-                        tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)
+                        tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
                         # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
 
                 logits = torch.squeeze(m(logits)).detach().cpu().numpy()
