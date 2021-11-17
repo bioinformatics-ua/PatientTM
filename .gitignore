@@ -9,6 +9,7 @@ data/extended/backup/
 data/extended/discharge/
 data/extended/3days/
 data/extended/2days/
+data/extended_folds/
 src/wandb/
 results/result_discharge/
 results/result_early/
