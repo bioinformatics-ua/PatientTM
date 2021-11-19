@@ -1,0 +1,490 @@
+Fold Number 0:
+Label count considering HADM_IDs:
+0    4236
+1     297
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    20105
+1.0     1659
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4091
+1.0     291
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35790
+1.0     3080
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    33445
+1.0     2914
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    36359
+No      2511
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    30448
+1.0     2725
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    33173
+No      5697
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4164
+1.0     294
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4154
+No      304
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3798
+No      660
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 1:
+Label count considering HADM_IDs:
+0    4236
+1     296
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    20250
+1.0     1662
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4106
+1.0     292
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35022
+1.0     3094
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    32696
+1.0     2996
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35692
+No      2424
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    29710
+1.0     2802
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    32512
+No      5604
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4158
+1.0     292
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4142
+No      308
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3799
+No      651
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 2:
+Label count considering HADM_IDs:
+0    4236
+1     296
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    20031
+1.0     1633
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4086
+1.0     291
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35568
+1.0     2987
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    33097
+1.0     2790
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35887
+No      2668
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    29914
+1.0     2582
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    32496
+No      6059
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4146
+1.0     288
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4109
+No      325
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3783
+No      651
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 3:
+Label count considering HADM_IDs:
+0    4236
+1     296
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    19808
+1.0     1663
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4106
+1.0     292
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35475
+1.0     3145
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    32947
+1.0     3000
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35947
+No      2673
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    29875
+1.0     2875
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    32750
+No      5870
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4174
+1.0     291
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4135
+No      330
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3795
+No      670
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 4:
+Label count considering HADM_IDs:
+0    4236
+1     296
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    19898
+1.0     1564
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4083
+1.0     291
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35482
+1.0     2979
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    32974
+1.0     2890
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35864
+No      2597
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    29967
+1.0     2773
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    32740
+No      5721
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4159
+1.0     294
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4138
+No      315
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3824
+No      629
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 5:
+Label count considering HADM_IDs:
+0    4236
+1     296
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    20253
+1.0     1630
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4123
+1.0     289
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35203
+1.0     3126
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    32804
+1.0     3052
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35856
+No      2473
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    30318
+1.0     2754
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    33072
+No      5257
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4150
+1.0     289
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4165
+No      274
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3855
+No      584
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 6:
+Label count considering HADM_IDs:
+0    4236
+1     296
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    20024
+1.0     1649
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4093
+1.0     291
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    36534
+1.0     3324
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    33809
+1.0     3245
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    37054
+No      2804
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    30796
+1.0     3029
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    33825
+No      6033
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4167
+1.0     293
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4153
+No      307
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3805
+No      655
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 7:
+Label count considering HADM_IDs:
+0    4236
+1     296
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    19981
+1.0     1636
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4099
+1.0     289
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35672
+1.0     2790
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    33207
+1.0     2679
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35886
+No      2576
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    29960
+1.0     2579
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    32539
+No      5923
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4161
+1.0     293
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4134
+No      320
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3780
+No      674
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 8:
+Label count considering HADM_IDs:
+0    4235
+1     297
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    20151
+1.0     1697
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4090
+1.0     291
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35406
+1.0     3194
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    32945
+1.0     2901
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35846
+No      2754
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    29896
+1.0     2613
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    32509
+No      6091
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4159
+1.0     292
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4136
+No      315
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3806
+No      645
+Name: TEST_READY_3, dtype: int64
+
+
+
+Fold Number 9:
+Label count considering HADM_IDs:
+0    4235
+1     297
+Name: OUTPUT_LABEL, dtype: int64
+Label count considering discharge with text:
+0.0    20009
+1.0     1651
+Name: Label, dtype: int64
+Label count considering discharge without text:
+0.0    4095
+1.0     290
+Name: Label, dtype: int64
+------Moving from Discharge to Early -------
+Label count considering all early with text:
+0.0    35436
+1.0     2416
+Name: Label, dtype: int64
+Label count considering TEST 2 early days with text:
+0.0    33032
+1.0     2281
+Name: Label, dtype: int64
+Test ready samples considering 2 early days with text:
+Yes    35313
+No      2539
+Name: TEST_READY_2, dtype: int64
+Label count considering TEST 3 early days with text:
+0.0    30241
+1.0     2054
+Name: Label, dtype: int64
+Test ready samples considering 3 early days with text:
+Yes    32295
+No      5557
+Name: TEST_READY_3, dtype: int64
+Label count considering early without text:
+0.0    4164
+1.0     293
+Name: Label, dtype: int64
+Test ready samples considering 2 early days without text:
+Yes    4135
+No      322
+Name: TEST_READY_2, dtype: int64
+Test ready samples considering 3 early days without text:
+Yes    3803
+No      654
+Name: TEST_READY_3, dtype: int64
+
+
+
