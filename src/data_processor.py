@@ -71,16 +71,8 @@ class InputFeatures(object):
 class DataProcessor(object):
     """Base class for data converters for sequence classification data sets."""
 
-    def get_train_examples(self, data_dir):
-        """Gets a collection of `InputExample`s for the train set."""
-        raise NotImplementedError()
-
-    def get_dev_examples(self, data_dir):
-        """Gets a collection of `InputExample`s for the dev set."""
-        raise NotImplementedError()
-    
-    def get_test_examples(self, data_dir):
-        """Gets a collection of `InputExample`s for the test set."""
+    def get_examples(self, data_dir):
+        """Gets a collection of `InputExample`s for the dataset."""
         raise NotImplementedError()
 
     def get_labels(self):
@@ -109,41 +101,26 @@ class DataProcessor(object):
         """Reads a comma separated value file."""
         array = np.load(input_file, allow_pickle=True)
         return array
+    
 
-class readmissionProcessor(DataProcessor):
-    def get_train_examples(self, data_dir, features=None):
-        # logger.info("LOOKING AT {}".format(os.path.join(data_dir, "train.csv")))
-        datasetFile = self._read_csv(os.path.join(data_dir, "train.csv"))
-        precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "train_precomputed_text.npy"))
-        # precomputedEmbeddingsFile = self._read_csv(os.path.join(data_dir, "train_precomputed_text.csv")) #self._read_precomputed_csv(os.path.join(data_dir, "train_precomputed_text.csv"))
-        return self._create_examples(datasetFile, precomputedEmbeddingsFile, "train", features)
-    
-    def get_dev_examples(self, data_dir, features=None):
-        datasetFile = self._read_csv(os.path.join(data_dir, "val.csv"))
-        precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "val_precomputed_text.npy"))
-        return self._create_examples(datasetFile, precomputedEmbeddingsFile, "val", features)
-    
-    def get_test_examples(self, data_dir, features=None):
-        datasetFile = self._read_csv(os.path.join(data_dir, "test.csv"))
-        precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "test_precomputed_text.npy"))
-        return self._create_examples(datasetFile, precomputedEmbeddingsFile, "test", features)
+class readmissionProcessorNoText(DataProcessor):
+    def get_examples(self, data_dir, features=None, fold=0):
+        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_notext.csv"))
+        return self._create_examples(datasetFile, "fold"+str(fold), features)
     
     def get_labels(self):
         """This is only 0 or 1 for readmission prediction. Other predictive goals may need different labels"""
         return ["0", "1"]
     
-    def _create_examples(self, linesAllFeatures, linesPrecomputed, set_type, Features=None):
+    def _create_examples(self, linesAllFeatures, set_type, Features=None):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
         examples = []
-        for i, (line, linePrecomputed) in enumerate(zip(linesAllFeatures, linesPrecomputed)):
+        for i, line in enumerate(linesAllFeatures):
             guid = "%s-%s" % (set_type, i)
             features = dict()
-            assert line[1] == linePrecomputed["HADM_ID"], "HADM_IDS do not match between the general file and the precomputed file!"
             
-            if "clinical_text" in Features:
-                features["clinical_text"] = linePrecomputed["clinicalbert_embedding"].flatten()
-            else: features["clinical_text"] = None
+            features["clinical_text"] = None
 
             if "admittime" in Features: features["admittime"] = [line[2]]
             else: features["admittime"] = None
@@ -200,7 +177,86 @@ class readmissionProcessor(DataProcessor):
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))
         return examples
+    
+    
+    
+class readmissionProcessorText(DataProcessor):
+    def get_examples(self, data_dir, features=None, fold=0):
+        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_text.csv"))
+        precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_text_precomputed.npy"))
+        return self._create_examples(datasetFile, precomputedEmbeddingsFile, "fold"+str(fold), features)
+    
+    def get_labels(self):
+        """This is only 0 or 1 for readmission prediction. Other predictive goals may need different labels"""
+        return ["0", "1"]
+    
+    def _create_examples(self, linesAllFeatures, linesPrecomputed, set_type, Features=None):
+        """Creates examples for the training, dev and test sets.
+        @param Features is a list with additional variables to be used"""
+        examples = []
+        for i, (line, linePrecomputed) in enumerate(zip(linesAllFeatures, linesPrecomputed)):
+            guid = "%s-%s" % (set_type, i)
+            features = dict()
+            assert line[1] == linePrecomputed["HADM_ID"], "HADM_IDS do not match between the general file and the precomputed file!"
+            
+            features["clinical_text"] = linePrecomputed["clinicalbert_embedding"].flatten()
 
+            if "admittime" in Features: features["admittime"] = [line[2]]
+            else: features["admittime"] = None
+
+            if "daystonextadmit" in Features:
+                features["daystonextadmit"] = line[3]
+                if pd.isna(features["daystonextadmit"]): features["daystonextadmit"] = [-1]
+                else: features["daystonextadmit"] = [float(line[3])]
+            else: features["daystonextadmit"] = None
+
+            if "daystoprevadmit" in Features:
+                features["daystoprevadmit"] = line[4]
+                if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [0]
+                elif  features["daystoprevadmit"] < 0: features["daystoprevadmit"] = [float(32000)]
+                else: features["daystoprevadmit"] = [float(line[4])]
+            else: features["daystoprevadmit"] = None
+
+            if "duration"  in Features: features["duration"] = [float(line[5])]
+            else: features["duration"] = None
+
+            if "diag_ccs"  in Features:
+                features["diag_ccs"] = line[7]
+                if pd.isna(features["diag_ccs"]) or features["diag_ccs"] == "[]": features["diag_ccs"] = [0]
+                else: features["diag_ccs"] = [x for x in processString(line[7],charsToRemove = "[]\' ").split(',')]
+            else: features["diag_ccs"] = None
+
+            if "proc_ccs"  in Features:
+                features["proc_ccs"] = line[9]
+                if pd.isna(features["proc_ccs"]) or features["proc_ccs"] == "[]": features["proc_ccs"] = [0]
+                else: features["proc_ccs"] = [x for x in processString(line[9],charsToRemove = "[]\' ").split(',')]
+            else: features["proc_ccs"] = None
+
+            if "small_diag_icd9" in Features:
+                features["small_diag_icd9"] = line[11]
+                if pd.isna(features["small_diag_icd9"]) or features["small_diag_icd9"] == "[]": features["small_diag_icd9"] = [0]
+                else: features["small_diag_icd9"] = [x for x in processString(line[11],charsToRemove = "[]\' ").split(',')]
+            else: features["small_diag_icd9"] = None
+
+            if "small_proc_icd9" in Features:
+                features["small_proc_icd9"] = line[12]
+                if pd.isna(features["small_proc_icd9"]) or features["small_proc_icd9"] == "[]": features["small_proc_icd9"] = [0]
+                else: features["small_proc_icd9"] = [x for x in processString(line[12],charsToRemove = "[]\' ").split(',')]
+            else: features["small_proc_icd9"] = None
+
+            if "cui" in Features:
+                features["cui"] = line[13]                    
+                if pd.isna(features["cui"]) or features["cui"] == "[]": features["cui"] = [0]
+                else: features["cui"] = [x for x in processString(line[13],charsToRemove = "[]\' ").split(',')]
+            else: features["cui"] = None
+
+            features["hadm_id"] = line[1]
+            features["label"] = str(int(line[14]))
+
+            examples.append(
+                InputExample(guid=guid, features=features, text_b=None))
+        return examples
+    
 
 def processString(string, charsToRemove):
     for char in charsToRemove: string = string.replace(char, "")
@@ -208,13 +264,7 @@ def processString(string, charsToRemove):
 
 
 def convertToIds(feature, idsMappingDict):
-    # featureIds=[]
-    # for entry in feature:
-    #     featureIds.append(idsMappingDict[str(entry)])
-    #     print(entry)
-    # return featureIds
     return [idsMappingDict[str(entry)] for entry in feature]
-
 
 
 def convert_examples_to_features(examples, label_list, Features, maxLenDict):

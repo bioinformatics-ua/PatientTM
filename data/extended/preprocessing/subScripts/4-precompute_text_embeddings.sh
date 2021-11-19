@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python3 ./cbert_precomputation.py   --task_name readmission   --readmission_mode discharge  --data_dir /clinicalBERT/data/extended/discharge/   --bert_model /clinicalBERT/model/discharge_readmission   --max_seq_length 512   --output_dir /clinicalBERT/results/result_discharge
