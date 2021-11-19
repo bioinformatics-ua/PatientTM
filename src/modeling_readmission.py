@@ -1018,9 +1018,9 @@ class BertForSequenceClassificationOriginal(PreTrainedBertModel):
             #loss = loss_fct(n.reshape(-1,1), labels.float().reshape(-1,1))
             n = torch.squeeze(m(logits), dim=-1)
             loss = loss_fct(n, labels.float())
-            return loss, logits
+            return pooled_output2, loss, logits
         else:
-            return logits
+            return pooled_output2, logits
 
 
 
