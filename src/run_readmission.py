@@ -321,10 +321,10 @@ def runReadmission(args):
                 weight = 1. / class_sample_count
                 samples_weight = weight[train_all_label_ids]
 
-                new_majority_proportion = 3
-                class_sample_count[0] /= new_majority_proportion
-                weight = 1. / class_sample_count
-                samples_weight = weight[train_all_label_ids]
+                # new_majority_proportion = 3
+                # class_sample_count[0] /= new_majority_proportion
+                # weight = 1. / class_sample_count
+                # samples_weight = weight[train_all_label_ids]
 
                 samples_weight = torch.from_numpy(samples_weight)       
                 train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
