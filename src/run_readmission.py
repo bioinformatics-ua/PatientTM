@@ -36,13 +36,14 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.metrics import precision_recall_fscore_support
+from sklearn.model_selection import RepeatedKFold, KFold
 
 # from scipy import interp
 
 import wandb
 import torch
 from torch import nn
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler, WeightedRandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam
@@ -51,7 +52,7 @@ from ranger21 import Ranger21 as RangerOptimizer
 
 from modeling_readmission import BertForSequenceClassification, BertForSequenceClassificationOriginal
 from data_processor import convert_examples_to_features, readmissionProcessorText, readmissionProcessorNoText
-from evaluation import vote_score, vote_pr_curve, compute_accuracy_noclinicaltext
+from evaluation import vote_score, vote_pr_curve
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -104,7 +105,7 @@ def runReadmission(args):
         file_ending = "_text.csv"
         processors = {"readmission": readmissionProcessorText}
     else:
-        file_ending = "_notext.csv
+        file_ending = "_notext.csv"
         processors = {"readmission": readmissionProcessorNoText}
 
 
@@ -211,43 +212,44 @@ def runReadmission(args):
             folds_dataset.append(convert_examples_to_features(dataset, label_list, args.features, maxLenDict))
         print("All dataset folds loaded.\n")
         
-        # This is currently working in a 80-20 split (train-val) but is prepared for 80-10-10 train-val-test
-        fold_configurations = [{"train": [0,1,2,3,4,5,6,7], "val": [8,9]}, #"val": [8], "test": [9]},
-                               {"train": [2,3,4,5,6,7,8,9], "val": [0,1]}, #"val": [0], "test": [1]},
-                               {"train": [4,5,6,7,8,9,0,1], "val": [2,3]}, #"val": [2], "test": [3]},
-                               {"train": [6,7,8,9,0,1,2,3], "val": [4,5]}, #"val": [4], "test": [5]},
-                               {"train": [8,9,0,1,2,3,4,5], "val": [6,7]}] #"val": [6], "test": [7]}]
+        history_training_loss, history_validation_loss, history_test_loss = [], [], []
+        history_val_accuracy, history_val_RP80, history_val_precision, history_val_recall, history_val_f1score = [], [], [], [], []
+        history_test_accuracy, history_test_RP80, history_test_precision, history_test_recall, history_test_f1score = [], [], [], [], []
+
+# Beginning the folding process here
+        # repeatedkFold = RepeatedKFold(n_splits=2, n_repeats=2, random_state=2652124)
+        kFold = KFold(n_splits=10)
+        for i, (train_index, test_index) in enumerate(kFold.split(folds)):
+            val_index = [train_index[-1]] #We select the last partition from the train set for validation
+            train_index = train_index[:-1]
         
-        history_training_loss, history_validation_loss, history_validation_accuracy = [], [], []
-        history_RP80, history_precision, history_recall, history_f1score = [], [], [], []
-        
-        # Beginning the folding process
-        for i, fold_config in enumerate(fold_configurations):
-            train_features = [fold_dataset for fold_index in fold_config["train"] for fold_dataset in folds_dataset[fold_index]]
-            val_features   = [fold_dataset for fold_index in fold_config["val"]   for fold_dataset in folds_dataset[fold_index]]
-            # test_features  = [fold_dataset for fold_index in fold_config["test"]  for fold_dataset in folds_dataset[fold_index]]
+            train_features = [fold_dataset for fold_index in train_index for fold_dataset in folds_dataset[fold_index]]
+            val_features   = [fold_dataset for fold_index in val_index   for fold_dataset in folds_dataset[fold_index]]
+            test_features  = [fold_dataset for fold_index in test_index  for fold_dataset in folds_dataset[fold_index]]
             
             num_train_steps = int(len(train_features) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
             logger.info("***** Running training in configuration %d *****", i)
             logger.info("  Num examples = %d", len(train_features))
             logger.info("  Batch size = %d", args.train_batch_size)
             logger.info("  Num steps = %d", num_train_steps)
-                
+   
             if "clinical_text" in args.features:
-                train_precomputed_text   = torch.tensor([f.clinical_text for f in train_features], dtype=torch.float)
-                train_all_label_ids      = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-                train_tensors = [train_precomputed_text, train_all_label_ids]
-
-                val_all_hadm_ids      = [f.hadm_id for f in val_features]
-                val_precomputed_text  = torch.tensor([f.clinical_text for f in val_features], dtype=torch.float)
-                val_all_label_ids     = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
-                val_tensors = [val_precomputed_text, val_all_label_ids]
+                train_precomputed_text = torch.tensor([f.clinical_text for f in train_features], dtype=torch.float)
+                train_all_label_ids    = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+                train_tensors          = [train_precomputed_text, train_all_label_ids]
+                val_precomputed_text   = torch.tensor([f.clinical_text for f in val_features], dtype=torch.float)
+                val_all_label_ids      = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
+                val_tensors            = [val_precomputed_text, val_all_label_ids]
+                test_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
+                test_all_label_ids     = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+                test_tensors           = [test_precomputed_texts, test_all_label_ids]
             else:
                 train_all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-                train_tensors = [train_all_label_ids]
-                val_all_hadm_ids    = [f.hadm_id for f in val_features]
-                val_all_label_ids = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
-                val_tensors = [val_all_label_ids]
+                train_tensors       = [train_all_label_ids]
+                val_all_label_ids   = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
+                val_tensors         = [val_all_label_ids]
+                test_label_ids      = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+                test_tensors        = [test_label_ids]
 
             featurePositionDict = {}
             positionIdx=0
@@ -255,78 +257,89 @@ def runReadmission(args):
             if "admittime" in args.features:
                 train_tensors.append(torch.tensor([f.admittime for f in train_features], dtype=torch.long))  #long, float, or other??!
                 val_tensors.append(torch.tensor([f.admittime for f in val_features], dtype=torch.long))       #long, float, or other??!
+                test_tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long)) #long, float, or other??!
                 featurePositionDict["admittime"] = positionIdx
                 positionIdx+=1
             if "daystonextadmit" in args.features:
                 train_tensors.append(torch.tensor([f.daystonextadmit for f in train_features], dtype=torch.float))
                 val_tensors.append(torch.tensor([f.daystonextadmit for f in val_features], dtype=torch.float))
+                test_tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
                 featurePositionDict["daystonextadmit"] = positionIdx
                 positionIdx+=1
             if "daystoprevadmit" in args.features:
                 train_tensors.append(torch.tensor([f.daystoprevadmit for f in train_features], dtype=torch.float))
                 val_tensors.append(torch.tensor([f.daystoprevadmit for f in val_features], dtype=torch.float))
+                test_tensors.append(torch.tensor([f.daystoprevadmit for f in test_features], dtype=torch.float))
                 featurePositionDict["daystoprevadmit"] = positionIdx
                 positionIdx+=1            
             if "duration"  in args.features:
                 train_tensors.append(torch.tensor([f.duration for f in train_features], dtype=torch.float))
                 val_tensors.append(torch.tensor([f.duration for f in val_features], dtype=torch.float))
+                test_tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.float))
                 featurePositionDict["duration"] = positionIdx
                 positionIdx+=1
             if "diag_ccs"  in args.features:
                 train_tensors.append(torch.tensor([f.diag_ccs for f in train_features], dtype=torch.long))
                 val_tensors.append(torch.tensor([f.diag_ccs for f in val_features], dtype=torch.long))
+                test_tensors.append(torch.tensor([f.diag_ccs for f in test_features], dtype=torch.long))
                 featurePositionDict["diag_ccs"] = positionIdx
                 positionIdx+=1
             if "proc_ccs"  in args.features:
                 train_tensors.append(torch.tensor([f.proc_ccs for f in train_features], dtype=torch.long))
                 val_tensors.append(torch.tensor([f.proc_ccs for f in val_features], dtype=torch.long))
+                test_tensors.append(torch.tensor([f.proc_ccs for f in test_features], dtype=torch.long))
                 featurePositionDict["proc_ccs"] = positionIdx
                 positionIdx+=1
             if "small_diag_icd9" in args.features:
                 train_tensors.append(torch.tensor([f.small_diag_icd9 for f in train_features], dtype=torch.long))
                 val_tensors.append(torch.tensor([f.small_diag_icd9 for f in val_features], dtype=torch.long))
+                test_tensors.append(torch.tensor([f.small_diag_icd9 for f in test_features], dtype=torch.long))
                 featurePositionDict["small_diag_icd9"] = positionIdx
                 positionIdx+=1
             if "small_proc_icd9" in args.features:
                 train_tensors.append(torch.tensor([f.small_proc_icd9 for f in train_features], dtype=torch.long))
                 val_tensors.append(torch.tensor([f.small_proc_icd9 for f in val_features], dtype=torch.long))
+                test_tensors.append(torch.tensor([f.small_proc_icd9 for f in test_features], dtype=torch.long))
                 featurePositionDict["small_proc_icd9"] = positionIdx
                 positionIdx+=1    
             if "cui" in args.features:
                 train_tensors.append(torch.tensor([f.cui for f in train_features], dtype=torch.long))
                 val_tensors.append(torch.tensor([f.cui for f in val_features], dtype=torch.long))
+                test_tensors.append(torch.tensor([f.cui for f in test_features], dtype=torch.long))
                 featurePositionDict["cui"] = positionIdx
                 positionIdx+=1
 
             train_data = TensorDataset(*train_tensors)
             val_data   = TensorDataset(*val_tensors)
+            test_data  = TensorDataset(*test_tensors)
             
-            print(np.where(train_all_label_ids == 0), np.where(train_all_label_ids == 1))
-            print(np.where(train_all_label_ids == 0)[0], np.where(train_all_label_ids == 1)[0])
-            print(len(np.where(train_all_label_ids == 0)[0]), len(np.where(train_all_label_ids == 1)[0]))
-            
-            if args.local_rank == -1:
-                print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
-                class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
-                weight = 1. / class_sample_count
-                samples_weight = weight[target]
 
-                # new_majority_proportion = 3
-                # class_sample_count[0] /= new_majority_proportion
-                # weight = 1. / class_sample_count
-                # samples_weight = weight[target]
+            if args.local_rank == -1:
+                # print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
+                class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
+                print(f'Target train class distribution 0/1: {class_sample_count}')
+                weight = 1. / class_sample_count
+                samples_weight = weight[train_all_label_ids]
+
+                new_majority_proportion = 3
+                class_sample_count[0] /= new_majority_proportion
+                weight = 1. / class_sample_count
+                samples_weight = weight[train_all_label_ids]
 
                 samples_weight = torch.from_numpy(samples_weight)       
-                train_sampler = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
-                val_sampler   = SequentialSampler(val_data)
+                train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
+                val_sampler    = SequentialSampler(val_data)
+                test_sampler   = SequentialSampler(test_data)
             else:
                 train_sampler = DistributedSampler(train_data)
-                val_sampler = DistributedSampler(val_data)
+                val_sampler   = DistributedSampler(val_data)
+                test_sampler  = DistributedSampler(test_data)
 
-                
             train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
             val_dataloader   = DataLoader(val_data, sampler=val_sampler, batch_size=args.train_batch_size)
-
+            test_dataloader  = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
+                  
+                
             optimizer = RangerOptimizer(params=optimizer_grouped_parameters,
                                         lr=args.learning_rate,
                                         # warmup_pct_default=args.warmup_proportion,
@@ -433,22 +446,19 @@ def runReadmission(args):
                     nb_val_steps += 1
                     nb_val_examples += label_ids.size
 
-                if "clinical_text" in args.features:
-                    val_accuracy /= nb_val_examples 
-                else:           
-                    val_accuracy = compute_accuracy_noclinicaltext(true_labels, pred_labels, val_all_hadm_ids)
+                val_accuracy /= nb_val_examples
                 val_loss = val_loss/nb_val_steps
 
-                df_val = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
+                df_val = pd.read_csv(os.path.join(args.data_dir, "fold" + str(val_index[0]) + file_ending))
                 fpr, tpr, df_out = vote_score(df_val, logits_history, args)
-                string = 'validation_logits_clinicalbert_'+args.readmission_mode+'_readmissions.csv'
-                df_out.to_csv(os.path.join(args.output_dir,string))
+                # string = 'validation_logits_fold' + str(val_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
+                # df_out.to_csv(os.path.join(args.output_dir,string))
 
-                precision, recall, f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
-                print(f'Precision {precision[1]}, Recall {recall[1]}, F1-Score {f1score[1]}') #The first entry is for class 0, the second for class 1
-                rp80 = vote_pr_curve(df_val, logits_history, args)
+                val_precision, val_recall, val_f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
+                print(f'Precision {val_precision[1]}, Recall {val_recall[1]}, F1-Score {val_f1score[1]}') #The first entry is for class 0, the second for class 1
+                val_rp80 = vote_pr_curve(df_val, logits_history, args)
 
-                wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": rp80}) 
+                wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": val_rp80}) 
 
                 ## "Early stopping" mechanism where validation loss is used to save model checkpoints
                 if args.early_stop:
@@ -467,47 +477,143 @@ def runReadmission(args):
             plt.plot(train_loss_history)
             fig_name = os.path.join(args.output_dir, 'train_loss_history_fold' + str(i) + '.png')
             fig1.savefig(fig_name, dpi=fig1.dpi)
+            
+#    Going to perform a test run on the test split now
+            m = nn.Sigmoid()
+            logger.info("***** Running testing *****")
+            logger.info("  Num examples = %d", len(test_features))
+            logger.info("  Batch size = %d", args.test_batch_size)
 
-            result = {'Validation loss': val_loss,
-                      'Validation accuracy': val_accuracy,
-                      # 'global_step': global_step_check,
-                      'Training loss': train_loss/number_training_steps,
-                      'RP80': rp80,
-                      'Precision': precision[1],
-                      'Recall': recall[1],
-                      'F1-Score': f1score[1]}
+            model.eval()
+            test_loss, test_accuracy = 0, 0
+            nb_test_steps, nb_test_examples = 0, 0
+            true_labels=[]
+            pred_labels=[]
+            logits_history=[]
+
+            if "clinical_text" in args.features:
+                for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                    precomputed_texts = precomputed_texts.to(device)
+                    label_ids = label_ids.to(device)
+
+                    with torch.no_grad():
+                        if nonTextFeatures:
+                            nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                            tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                          feature_position_dict=featurePositionDict)
+                            # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                        else:
+                            tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                            # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
+
+                    logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                    label_ids = label_ids.to('cpu').numpy()
+                    outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+                    true_labels = true_labels + label_ids.flatten().tolist()
+                    pred_labels = pred_labels + outputs.flatten().tolist()
+                    logits_history = logits_history + logits.flatten().tolist()
+
+                    test_accuracy += np.sum(outputs == label_ids)
+                    test_loss += tmp_test_loss.mean().item()
+                    nb_test_steps += 1
+                    nb_test_examples += label_ids.size
+
+            else:
+                for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                    label_ids = label_ids.to(device)
+                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+
+                    with torch.no_grad():
+                        tmp_test_loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                        # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)                    
+
+                    logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                    label_ids = label_ids.to('cpu').numpy()
+                    outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+                    true_labels = true_labels + label_ids.flatten().tolist()
+                    pred_labels = pred_labels + outputs.flatten().tolist()
+                    logits_history = logits_history + logits.flatten().tolist()
+
+                    test_accuracy += np.sum(outputs == label_ids)
+                    test_loss += tmp_test_loss.mean().item()
+                    nb_test_steps += 1
+                    nb_test_examples += label_ids.size
+
+
+            test_accuracy /= nb_test_examples
+            test_loss = test_loss / nb_test_steps
+
+            # df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
+            # string = 'test_logits_fold' + str(i) + '_' + args.readmission_mode + '_chunks.csv'
+            # df.to_csv(os.path.join(args.output_dir, string))
+            
+            df_test = pd.read_csv(os.path.join(args.data_dir, "fold" + str(test_index[0]) + file_ending))
+            fpr, tpr, df_out = vote_score(df_test, logits_history, args)
+
+            # string = 'test_logits_fold' + str(test_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
+            # df_out.to_csv(os.path.join(args.output_dir,string))
+
+            test_precision, test_recall, test_f1score, test_support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
+            test_rp80 = vote_pr_curve(df_test, logits_history, args)
+
+            wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Recall at Precision 80 (RP80)": test_rp80})          
+
+            result = {'Training loss':        train_loss/number_training_steps,
+                      'Validation loss':      val_loss,
+                      'Validation accuracy':  val_accuracy,
+                      'Validation RP80':      val_rp80,
+                      'Validation Precision': val_precision[1],
+                      'Validation Recall':    val_recall[1],
+                      'Validation F1-Score':  val_f1score[1],
+                      'Test accuracy':        test_accuracy,
+                      'Test RP80':            test_rp80,
+                      'Test Precision':       test_precision[1],
+                      'Test Recall':          test_recall[1],
+                      'Test F1-Score':        test_f1score[1],
+                     }
             
             history_training_loss.append(train_loss/number_training_steps)
             history_validation_loss.append(val_loss)
-            history_validation_accuracy.append(val_accuracy)
-            history_RP80.append(rp80)
-            history_precision.append(precision[1])
-            history_recall.append(recall[1])
-            history_f1score.append(f1score[1])
+            history_test_loss.append(test_loss)
+            history_val_accuracy.append(val_accuracy)
+            history_val_RP80.append(val_rp80)
+            history_val_precision.append(val_precision[1])
+            history_val_recall.append(val_recall[1])
+            history_val_f1score.append(val_f1score[1])
+            history_test_accuracy.append(test_accuracy)
+            history_test_RP80.append(test_rp80)
+            history_test_precision.append(test_precision[1])
+            history_test_recall.append(test_recall[1])
+            history_test_f1score.append(test_f1score[1])
             
-            output_val_file = os.path.join(args.output_dir, "validation_results.txt")
-            if not os.path.exists(output_val_file):
-                with open(output_val_file, "w") as writer:
-                    writer.write("***** Logging validation results for cross validation *****\n")
+            output_results_file = os.path.join(args.output_dir, "validation_and_test_results.txt")
+            if not os.path.exists(output_results_file):
+                with open(output_results_file, "w") as writer:
+                    writer.write("***** Logging validation and test results for cross validation *****\n")
             else:
-                with open(output_val_file, "a") as writer:
-                    logger.info("***** Validation results configuration %d *****", i)
-                    writer.write("***** Validation results configuration %d *****" % (i))
+                with open(output_results_file, "a") as writer:
+                    logger.info("***** Results fold %d *****", i)
+                    writer.write("***** Results fold %d *****" % (i))
                     for key in sorted(result.keys()):
                         logger.info("  %s = %s", key, str(result[key]))
                         writer.write("%s = %s\n" % (key, str(result[key])))
-                    
         
-        mean_result = {'Validation loss': sum(history_validation_loss)/len(history_validation_loss),
-                      'Validation accuracy': sum(history_validation_accuracy)/len(history_validation_accuracy),
-                      'Training loss': sum(history_training_loss)/len(history_training_loss),
-                      'RP80': sum(history_RP80)/len(history_RP80),
-                      'Precision': sum(history_precision)/len(history_precision),
-                      'Recall': sum(history_recall)/len(history_recall),
-                      'F1-Score': sum(history_f1score)/len(history_f1score)}
+        mean_result = {'Training loss':       sum(history_training_loss)/len(history_training_loss),
+                      'Validation loss':      sum(history_validation_loss)/len(history_validation_loss),
+                      'Validation accuracy':  sum(history_val_accuracy)/len(history_val_accuracy),               
+                      'Validation RP80':      sum(history_val_RP80)/len(history_val_RP80),
+                      'Validation Precision': sum(history_val_precision)/len(history_val_precision),
+                      'Validation Recall':    sum(history_val_recall)/len(history_val_recall),
+                      'Validation F1-Score':  sum(history_val_f1score)/len(history_val_f1score),
+                      'Test accuracy':        sum(history_test_accuracy)/len(history_test_accuracy),               
+                      'Test RP80':            sum(history_test_RP80)/len(history_test_RP80),
+                      'Test Precision':       sum(history_test_precision)/len(history_test_precision),
+                      'Test Recall':          sum(history_test_recall)/len(history_test_recall),
+                      'Test F1-Score':        sum(history_test_f1score)/len(history_test_f1score),
+                      }
         
         print("Writing mean performances across all folds")
-        with open(output_val_file, "a") as writer:
+        with open(output_results_file, "a") as writer:
             logger.info("***** Average performance across all folds *****")
             writer.write("***** Average performance across all folds *****")
             for key in sorted(mean_result.keys()):
@@ -516,183 +622,7 @@ def runReadmission(args):
         
     
     
-# # THE TEST MUST BE CHANGED TO USE THE PROVIDED DATASET THROUGH THE INPUT ARGS    
     
-#     if args.do_test:
-#         m = nn.Sigmoid()
-#         test_examples = processor.get_test_examples(args.data_dir, args.features)
-#         test_features = convert_examples_to_features(test_examples, label_list, args.features, maxLenDict)
-#         logger.info("***** Running testing *****")
-#         logger.info("  Num examples = %d", len(test_examples))
-#         logger.info("  Batch size = %d", args.test_batch_size)
-        
-#         if "clinical_text" in args.features:
-#             all_hadm_ids  = [f.hadm_id for f in test_features]
-#             all_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
-#             all_label_ids = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-#             tensors = [all_precomputed_texts, all_label_ids]
-#         else:
-#             all_hadm_ids = [f.hadm_id for f in test_features]
-#             all_label_ids = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-#             tensors = [all_label_ids]
-
-#         featurePositionDict = {}
-#         positionIdx=0
-#         # featureOrder = [feature for feature in args.features]
-        
-#         if args.features is not None:
-#             if "admittime" in args.features:
-#                 tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long)) #long, float, or other??!
-#                 featurePositionDict["admittime"] = positionIdx
-#                 positionIdx+=1
-#             if "daystonextadmit" in args.features:
-#                 tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
-#                 featurePositionDict["daystonextadmit"] = positionIdx
-#                 positionIdx+=1
-#             if "daystoprevadmit" in args.features:
-#                 tensors.append(torch.tensor([f.daystoprevadmit for f in test_features], dtype=torch.float))
-#                 featurePositionDict["daystoprevadmit"] = positionIdx
-#                 positionIdx+=1
-#             if "duration"  in args.features:
-#                 tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.float))
-#                 featurePositionDict["duration"] = positionIdx
-#                 positionIdx+=1
-#             if "diag_ccs"  in args.features:
-#                 tensors.append(torch.tensor([f.diag_ccs for f in test_features], dtype=torch.long))
-#                 featurePositionDict["diag_ccs"] = positionIdx
-#                 positionIdx+=1
-#             if "proc_ccs"  in args.features:
-#                 tensors.append(torch.tensor([f.proc_ccs for f in test_features], dtype=torch.long))
-#                 featurePositionDict["proc_ccs"] = positionIdx
-#                 positionIdx+=1
-#             if "small_diag_icd9" in args.features:
-#                 tensors.append(torch.tensor([f.small_diag_icd9 for f in test_features], dtype=torch.long))
-#                 featurePositionDict["small_diag_icd9"] = positionIdx
-#                 positionIdx+=1
-#             if "small_proc_icd9" in args.features:
-#                 tensors.append(torch.tensor([f.small_proc_icd9 for f in test_features], dtype=torch.long))
-#                 featurePositionDict["small_proc_icd9"] = positionIdx
-#                 positionIdx+=1
-#             if "cui"       in args.features:
-#                 tensors.append(torch.tensor([f.cui for f in test_features], dtype=torch.long))
-#                 featurePositionDict["cui"] = positionIdx
-#                 positionIdx+=1
-#             # if "diag_icd9" in args.features:
-#             #     tensors.append(torch.tensor([f.diag_icd9 for f in test_features], dtype=torch.long))
-#             #     featurePositionDict["diag_icd9"] = positionIdx
-#             #     positionIdx+=1
-#             # if "proc_icd9" in args.features:
-#             #     tensors.append(torch.tensor([f.proc_icd9 for f in test_features], dtype=torch.long))
-#             #     featurePositionDict["proc_icd9"] = positionIdx
-#             #     positionIdx+=1
-#             # if "ndc"       in args.features:
-#             #     tensors.append(torch.tensor([f.ndc for f in test_features], dtype=torch.long))
-#             #     featurePositionDict["ndc"] = positionIdx
-#             #     positionIdx+=1
-                
-                
-#         test_data = TensorDataset(*tensors)
-
-#         if args.local_rank == -1:
-#             test_sampler = SequentialSampler(test_data)
-#         else:
-#             test_sampler = DistributedSampler(test_data)
-#         test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
-#         model.eval()
-#         test_loss, test_accuracy = 0, 0
-#         nb_test_steps, nb_test_examples = 0, 0
-#         true_labels=[]
-#         pred_labels=[]
-#         logits_history=[]
-                        
-#         if "clinical_text" in args.features:
-#             for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
-#                 precomputed_texts = precomputed_texts.to(device)
-#                 label_ids = label_ids.to(device)
-
-#                 with torch.no_grad():
-#                     if nonTextFeatures:
-#                         nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-#                         tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
-#                                                       feature_position_dict=featurePositionDict)
-#                         # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
-#                     else:
-#                         tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
-#                         # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
-
-#                 logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-#                 label_ids = label_ids.to('cpu').numpy()
-#                 outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-#                 true_labels = true_labels + label_ids.flatten().tolist()
-#                 pred_labels = pred_labels + outputs.flatten().tolist()
-#                 logits_history = logits_history + logits.flatten().tolist()
-                
-#                 test_accuracy += np.sum(outputs == label_ids)
-#                 test_loss += tmp_test_loss.mean().item()
-#                 nb_test_steps += 1
-#                 nb_test_examples += label_ids.size
-                
-#         else:
-#             for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
-#                 label_ids = label_ids.to(device)
-#                 nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-
-#                 with torch.no_grad():
-#                     tmp_test_loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
-#                     # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)                    
-                        
-#                 logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-#                 label_ids = label_ids.to('cpu').numpy()
-#                 outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-#                 true_labels = true_labels + label_ids.flatten().tolist()
-#                 pred_labels = pred_labels + outputs.flatten().tolist()
-#                 logits_history = logits_history + logits.flatten().tolist()
-
-#                 test_accuracy += np.sum(outputs == label_ids)
-#                 test_loss += tmp_test_loss.mean().item()
-#                 nb_test_steps += 1
-#                 nb_test_examples += label_ids.size
-            
-            
-#         if "clinical_text" in args.features:
-#             test_accuracy /= nb_test_examples 
-#         else:               
-#             test_accuracy = compute_accuracy_noclinicaltext(true_labels, pred_labels, all_hadm_ids)
-#         test_loss = test_loss / nb_test_steps
-        
-#         df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
-        
-#         string = 'test_logits_clinicalbert_'+args.readmission_mode+'_chunks.csv'
-#         df.to_csv(os.path.join(args.output_dir, string))
-        
-#         df_test = pd.read_csv(os.path.join(args.data_dir, "test.csv"))
-
-#         fpr, tpr, df_out = vote_score(df_test, logits_history, args)
-        
-#         string = 'test_logits_clinicalbert_'+args.readmission_mode+'_readmissions.csv'
-#         df_out.to_csv(os.path.join(args.output_dir,string))
-        
-#         precision, recall, f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
-#         rp80 = vote_pr_curve(df_test, logits_history, args)
-        
-#         wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Recall at Precision 80 (RP80)": rp80})
-        
-#         result = {'Test loss': test_loss,
-#                   'Test accuracy': test_accuracy,                 
-#                   # 'global_step': global_step_check,
-#                   'RP80': rp80,
-#                   'Precision': precision[1],
-#                   'Recall': recall[1],
-                  
-#                   'F1-Score': f1score[1]}
-        
-#         output_test_file = os.path.join(args.output_dir, "test_results.txt")
-#         with open(output_test_file, "w") as writer:
-#             logger.info("***** Test results *****")
-#             for key in sorted(result.keys()):
-#                 logger.info("  %s = %s", key, str(result[key]))
-#                 writer.write("%s = %s\n" % (key, str(result[key])))
-    
-#     #Close the run by finishing it
+#   Close the run by finishing it
     wandb.finish()
         

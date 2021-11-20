@@ -1072,8 +1072,6 @@ class BertForSequenceClassification(PreTrainedBertModel):
     def __init__(self, config, num_labels, features):
         super(BertForSequenceClassification, self).__init__(config)
         self.bert = BertModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        
         classifier_size = 0
         
         if features is not None:
@@ -1129,13 +1127,11 @@ class BertForSequenceClassification(PreTrainedBertModel):
         self.apply(self.init_bert_weights)
 
 
-    def forward(self, input_ids=None, token_type_ids=None, attention_mask=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
+    def forward(self, precomputed_text=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
         layer_outputs = []
         if features_name is not None:
             if "clinical_text" in features_name:
-                _, bert_pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-                pooled_output2 = self.dropout(bert_pooled_output)
-                layer_outputs.append(pooled_output2)
+                layer_outputs.append(precomputed_text)
             if "admittime" in features_name:
                 admittime_output = self.admittime_layer(features_tensors[feature_position_dict["admittime"]])
                 layer_outputs.append(admittime_output)
