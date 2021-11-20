@@ -227,7 +227,6 @@ def main():
                 
             array = np.asarray(rows_list, dtype=object)
             array_filepath = "../data/extended_folds/" + args.readmission_mode + "/fold" + str(i) + "_text_precomputed.npy"
-            print(array_filepath)
             np.save(array_filepath, array)
         
     

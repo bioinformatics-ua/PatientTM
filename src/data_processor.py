@@ -112,6 +112,13 @@ class readmissionProcessorNoText(DataProcessor):
         """This is only 0 or 1 for readmission prediction. Other predictive goals may need different labels"""
         return ["0", "1"]
     
+    def _read_csv(cls, input_file):
+        """Reads a comma separated value file."""
+        file=pd.read_csv(input_file)
+        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
+                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.Label)
+        return lines
+    
     def _create_examples(self, linesAllFeatures, set_type, Features=None):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
@@ -212,7 +219,7 @@ class readmissionProcessorText(DataProcessor):
 
             if "daystoprevadmit" in Features:
                 features["daystoprevadmit"] = line[4]
-                if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [0]
+                if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [-1]
                 elif  features["daystoprevadmit"] < 0: features["daystoprevadmit"] = [float(32000)]
                 else: features["daystoprevadmit"] = [float(line[4])]
             else: features["daystoprevadmit"] = None
