@@ -31,6 +31,7 @@ import numpy as np
 from copy import deepcopy
 from tqdm import trange, tqdm
 from datetime import datetime
+from operator import itemgetter
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -82,6 +83,18 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
         else:
             param_opti.grad = None
     return is_nan
+
+
+def get_indices_perclass_and_sample(feature_list):
+    indices_0, indices_1 = [], []
+    for i, feature in enumerate(feature_list):
+        if feature.label_id == 1:
+            indices_1.append(i)
+        else:
+            indices_0.append(i)
+    #Sub sample negative class to equalize distribution        
+    indices_0 = random.sample(indices_0, len(indices_1))
+    return [*indices_0, *indices_1]
 
 
 def runReadmission(args):
@@ -153,59 +166,11 @@ def runReadmission(args):
 
     processor = processors[task_name]()
     label_list = processor.get_labels()
-
-    model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
-    # model = BertForSequenceClassificationOriginal.from_pretrained(args.bert_model, 1)
     
-    ## Setting WandBI to log gradients and model parameters
-    wandb.watch(model)
-
-    # print(list(model.named_parameters()))
-# SEE THIS AND CHANGE MODEL NAMED PARAMETERS TO SEE WHAT PARAMETERS ARE APPEARING, WITHOUT THE GIANT TENSORS IN THE OUTPUT
-    if args.fp16:
-        model.half()
-    model.to(device)
-    if args.local_rank != -1:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
-                                                          output_device=args.local_rank)
-    elif n_gpu > 1:
-        model = torch.nn.DataParallel(model)
-
-    global_step = 0
-    train_loss=100000
-    number_training_steps=1
-    global_step_check=0
-    train_loss_history=[]
-    
-    min_validation_loss=100000
-    val_loss_history=[]
-        
     if args.do_train:
-
-        ##if freeze_bert:
-        for name, param in model.named_parameters():
-            if name.startswith("bert"): # classifier.weight; classifier.bias
-                # print(name, param.type())            
-                param.requires_grad = False
-                param = param.cpu() # Force the unused parameters to the cpu, to free GPU space for other things
-                # print(name, param.type())  
-
-        # Prepare optimizer
-        if args.fp16:
-            param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
-                                for n, param in model.named_parameters()]
-        elif args.optimize_on_cpu:
-            param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_()) \
-                                for n, param in model.named_parameters()]
-        else:
-            param_optimizer = list(model.named_parameters())
-        no_decay = ['bias', 'gamma', 'beta']
-        optimizer_grouped_parameters = [
-            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
-            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
-            ]
         
-        folds = [i for i in range(10)]
+        cvFolds = 5
+        folds = [i for i in range(cvFolds)]
         folds_dataset = []
         for i in folds:
             dataset = processor.get_examples(args.data_dir, features=args.features, fold=i)
@@ -218,14 +183,28 @@ def runReadmission(args):
 
 # Beginning the folding process here
         # repeatedkFold = RepeatedKFold(n_splits=2, n_repeats=2, random_state=2652124)
-        kFold = KFold(n_splits=10)
+        
+        kFold = KFold(n_splits = cvFolds)
         for i, (train_index, test_index) in enumerate(kFold.split(folds)):
             val_index = [train_index[-1]] #We select the last partition from the train set for validation
             train_index = train_index[:-1]
         
-            train_features = [fold_dataset for fold_index in train_index for fold_dataset in folds_dataset[fold_index]]
-            val_features   = [fold_dataset for fold_index in val_index   for fold_dataset in folds_dataset[fold_index]]
-            test_features  = [fold_dataset for fold_index in test_index  for fold_dataset in folds_dataset[fold_index]]
+            train_features = [feature for fold_index in train_index for feature in folds_dataset[fold_index]]
+            val_features   = [feature for fold_index in val_index   for feature in folds_dataset[fold_index]]
+            test_features  = [feature for fold_index in test_index  for feature in folds_dataset[fold_index]]
+            
+            train_idx = [i for i in range(len(train_features))]
+            val_idx = [i for i in range(len(val_features))]
+            test_idx = [i for i in range(len(test_features))]
+            
+#             train_idx = get_indices_perclass_and_sample(train_features)
+#             val_idx   = get_indices_perclass_and_sample(val_features)
+#             test_idx  = get_indices_perclass_and_sample(test_features)
+            
+#             train_features = list(itemgetter(*train_idx)(train_features))
+#             val_features   = list(itemgetter(*val_idx)(val_features))
+#             test_features  = list(itemgetter(*test_idx)(test_features))
+            
             
             num_train_steps = int(len(train_features) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
             logger.info("***** Running training in configuration %d *****", i)
@@ -315,19 +294,20 @@ def runReadmission(args):
             
 
             if args.local_rank == -1:
-                # print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
-                class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
-                print(f'Target train class distribution 0/1: {class_sample_count}')
-                weight = 1. / class_sample_count
-                samples_weight = weight[train_all_label_ids]
+#                 # print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
+#                 class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
+#                 print(f'Target train class distribution 0/1: {class_sample_count}')
+#                 weight = 1. / class_sample_count
+#                 samples_weight = weight[train_all_label_ids]
 
-                # new_majority_proportion = 3
-                # class_sample_count[0] /= new_majority_proportion
-                # weight = 1. / class_sample_count
-                # samples_weight = weight[train_all_label_ids]
+#                 # new_majority_proportion = 3
+#                 # class_sample_count[0] /= new_majority_proportion
+#                 # weight = 1. / class_sample_count
+#                 # samples_weight = weight[train_all_label_ids]
 
-                samples_weight = torch.from_numpy(samples_weight)       
-                train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
+#                 samples_weight = torch.from_numpy(samples_weight)       
+#                 train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
+                train_sampler  = RandomSampler(train_data)
                 val_sampler    = SequentialSampler(val_data)
                 test_sampler   = SequentialSampler(test_data)
             else:
@@ -340,6 +320,48 @@ def runReadmission(args):
             test_dataloader  = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
                   
                 
+       ## Initialize the model before every fold training
+            model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
+
+            ## Setting WandBI to log gradients and model parameters
+            wandb.watch(model)
+
+            if args.fp16:
+                model.half()
+            model.to(device)
+            if args.local_rank != -1:
+                model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+                                                                  output_device=args.local_rank)
+            elif n_gpu > 1:
+                model = torch.nn.DataParallel(model)
+
+            train_loss, min_validation_loss = 100000, 100000
+            number_training_steps = 1
+            train_loss_history, val_loss_history = [], []
+
+            ##if freeze_bert:
+            for name, param in model.named_parameters():
+                if name.startswith("bert"): # classifier.weight; classifier.bias
+                    # print(name, param.type())            
+                    param.requires_grad = False
+                    param = param.cpu() # Force the unused parameters to the cpu, to free GPU space for other things
+                    # print(name, param.type())  
+
+            # Prepare optimizer
+            if args.fp16:
+                param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
+                                    for n, param in model.named_parameters()]
+            elif args.optimize_on_cpu:
+                param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_()) \
+                                    for n, param in model.named_parameters()]
+            else:
+                param_optimizer = list(model.named_parameters())
+            no_decay = ['bias', 'gamma', 'beta']
+            optimizer_grouped_parameters = [
+                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
+                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
+                ]
+        
             optimizer = RangerOptimizer(params=optimizer_grouped_parameters,
                                         lr=args.learning_rate,
                                         # warmup_pct_default=args.warmup_proportion,
@@ -450,12 +472,16 @@ def runReadmission(args):
                 val_loss = val_loss/nb_val_steps
 
                 df_val = pd.read_csv(os.path.join(args.data_dir, "fold" + str(val_index[0]) + file_ending))
+                df_val = df_val.iloc[val_idx, :]
                 fpr, tpr, df_out = vote_score(df_val, logits_history, args)
+                print(df_out)
+                print(max(logits_history))
                 # string = 'validation_logits_fold' + str(val_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
                 # df_out.to_csv(os.path.join(args.output_dir,string))
 
                 val_precision, val_recall, val_f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
-                print(f'Precision {val_precision[1]}, Recall {val_recall[1]}, F1-Score {val_f1score[1]}') #The first entry is for class 0, the second for class 1
+                print(f'Precision {val_precision}, Recall {val_recall}, F1-Score {val_f1score}') #The first entry is for class 0, the second for class 1
+                # print(f'Precision {val_precision[1]}, Recall {val_recall[1]}, F1-Score {val_f1score[1]}') #The first entry is for class 0, the second for class 1
                 val_rp80 = vote_pr_curve(df_val, logits_history, args)
 
                 wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": val_rp80}) 
@@ -548,6 +574,7 @@ def runReadmission(args):
             # df.to_csv(os.path.join(args.output_dir, string))
             
             df_test = pd.read_csv(os.path.join(args.data_dir, "fold" + str(test_index[0]) + file_ending))
+            df_test = df_test.iloc[test_idx, :]
             fpr, tpr, df_out = vote_score(df_test, logits_history, args)
 
             # string = 'test_logits_fold' + str(test_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
@@ -592,8 +619,8 @@ def runReadmission(args):
                     writer.write("***** Logging validation and test results for cross validation *****\n")
             else:
                 with open(output_results_file, "a") as writer:
-                    logger.info("***** Results fold %d *****", i)
-                    writer.write("***** Results fold %d *****" % (i))
+                    logger.info("***** Results fold %d *****\n", i)
+                    writer.write("***** Results fold %d *****\n" % (i))
                     for key in sorted(result.keys()):
                         logger.info("  %s = %s", key, str(result[key]))
                         writer.write("%s = %s\n" % (key, str(result[key])))
