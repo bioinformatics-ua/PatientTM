@@ -35,11 +35,17 @@ def vote_score(df, score, args):
     df['pred_score'] = score
     df_sort = df.sort_values(by=['HADM_ID'])
     #score 
-    temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/2)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/2)
-    x = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
-    df_out = pd.DataFrame({'logits': temp.values, 'Label': x})
-
-    fpr, tpr, thresholds = roc_curve(x, temp.values)
+    scaling_factor = 2
+    if "clinical_text" in args.features:
+        temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max) + df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/
+                scaling_factor)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/scaling_factor)
+        y = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
+    else:
+        temp = df_sort['pred_score']
+        y = df_sort['Label'].values
+        
+    df_out = pd.DataFrame({'logits': temp.values, 'Label': y})
+    fpr, tpr, thresholds = roc_curve(y, temp.values)
     auc_score = auc(fpr, tpr)
 
     plt.figure(1)
@@ -83,10 +89,14 @@ def vote_pr_curve(df, score, args):
     df_sort = df.sort_values(by=['HADM_ID'])
     #score
     scaling_factor = 2
-    temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/
-            scaling_factor)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/scaling_factor)
-    y = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
-    
+    if "clinical_text" in args.features:
+        temp = (df_sort.groupby(['HADM_ID'])['pred_score'].agg(max)+df_sort.groupby(['HADM_ID'])['pred_score'].agg(sum)/
+                scaling_factor)/(1+df_sort.groupby(['HADM_ID'])['pred_score'].agg(len)/scaling_factor)
+        y = df_sort.groupby(['HADM_ID'])['Label'].agg(np.min).values
+    else:
+        temp = df_sort['pred_score']
+        y = df_sort['Label'].values
+        
     precision, recall, thres = precision_recall_curve(y, temp)
     pr_thres = pd.DataFrame(data = list(zip(precision, recall, thres)), columns = ['prec','recall','thres'])
     vote_df = pd.DataFrame(data =  list(zip(temp, y)), columns = ['score','label'])
@@ -96,7 +106,7 @@ def vote_pr_curve(df, score, args):
     
     rp80 = 0
     if temp.size == 0:
-        print('Test Sample too small or RP80=0')
+        print('Sample too small or RP80=0')
     else:
         rp80 = temp.iloc[0].recall
         print('Recall at Precision of 80 is {}', rp80)

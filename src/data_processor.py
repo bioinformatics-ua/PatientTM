@@ -219,7 +219,7 @@ class readmissionProcessorText(DataProcessor):
 
             if "daystoprevadmit" in Features:
                 features["daystoprevadmit"] = line[4]
-                if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [-1]
+                if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [0]
                 elif  features["daystoprevadmit"] < 0: features["daystoprevadmit"] = [float(32000)]
                 else: features["daystoprevadmit"] = [float(line[4])]
             else: features["daystoprevadmit"] = None

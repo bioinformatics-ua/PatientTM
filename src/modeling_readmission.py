@@ -1195,6 +1195,8 @@ class BertForSequenceClassification(PreTrainedBertModel):
         
         if labels is not None:
             loss_fct = BCELoss()
+            # loss_fct = BCELoss_class_weighted(weights=[0.4,0.6])
+            
             m = nn.Sigmoid()
 # NOTE: for multi class the sigmoid activation must be changed to softmax and the loss must be changed from binary cross entropy to cross entropy
             n = torch.squeeze(m(logits), dim=-1)
@@ -1204,6 +1206,12 @@ class BertForSequenceClassification(PreTrainedBertModel):
             return logits
 
         
+def BCELoss_class_weighted(weights):
+    def loss(logits, labels):
+        input = torch.clamp(logits,min=1e-7,max=1-1e-7)
+        bce = - weights[1] * labels * torch.log(logits) - (1 - labels) * weights[0] * torch.log(1 - logits)
+        return torch.mean(bce)
+    return loss
         
         
         
