@@ -188,9 +188,13 @@ class readmissionProcessorNoText(DataProcessor):
     
     
 class readmissionProcessorText(DataProcessor):
-    def get_examples(self, data_dir, features=None, fold=0):
-        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_text.csv"))
-        precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_text_precomputed.npy"))
+    def get_examples(self, data_dir, features=None, fold=0, numpy_dir=None):
+        if numpy_dir is not None:
+            datasetFile = self._read_csv(data_dir)
+            precomputedEmbeddingsFile = self._read_precomputed_npy(numpy_dir)
+        else:
+            datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_text.csv"))
+            precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_text_precomputed.npy"))
         return self._create_examples(datasetFile, precomputedEmbeddingsFile, "fold"+str(fold), features)
     
     def get_labels(self):
