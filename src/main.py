@@ -117,6 +117,10 @@ def help(show=False):
                         default=False,
                         action='store_true',
                         help="Save a model checkpoint using early stopping to prevent the saving of overfiting models.")
+    parser.add_argument('--subsampling',
+                        default=False,
+                        action='store_true',
+                        help="Subsample the training datasets to equalize the distribution of positive vs negative classes. Useful for readmission prediction.")
 
     if show:
         parser.print_help()

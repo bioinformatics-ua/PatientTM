@@ -120,6 +120,7 @@ def runReadmission(args):
         # wandb.config.update({"lr": 0.1, "channels": 16})
         wandb.config.features = args.features
         wandb.config.dataset = data_type
+        wandb.config.subsampling = args.subsampling
 
         if args.task_name:
             wandb.config.task_name = args.task_name
@@ -229,15 +230,15 @@ def runReadmission(args):
                 train_idx = [i for i in range(len(train_features))]
                 val_idx = [i for i in range(len(val_features))]
                 test_idx = [i for i in range(len(test_features))]
-
+                if args.subsampling:
         #   Special sampling to downsample negative class in a random manner, and have equal distribution in the dataset
-                train_idx = get_indices_perclass_and_sample(train_features)
-                val_idx   = get_indices_perclass_and_sample(val_features)
-                test_idx  = get_indices_perclass_and_sample(test_features)
+                    train_idx = get_indices_perclass_and_sample(train_features)
+                    val_idx   = get_indices_perclass_and_sample(val_features)
+                    test_idx  = get_indices_perclass_and_sample(test_features)
 
-                train_features = list(itemgetter(*train_idx)(train_features))
-                val_features   = list(itemgetter(*val_idx)(val_features))
-                test_features  = list(itemgetter(*test_idx)(test_features))
+                    train_features = list(itemgetter(*train_idx)(train_features))
+                    val_features   = list(itemgetter(*val_idx)(val_features))
+                    test_features  = list(itemgetter(*test_idx)(test_features))
 
 
                 num_train_steps = int(len(train_features) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
@@ -328,20 +329,23 @@ def runReadmission(args):
 
 
                 if args.local_rank == -1:
-#                     # print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
-#                     class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
-#                     print(f'Target train class distribution 0/1: {class_sample_count}')
-#                     weight = 1. / class_sample_count
-#                     samples_weight = weight[train_all_label_ids]
+                    if not args.subsampling:
+                        # print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
+                        class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
+                        print(f'Target train class distribution 0/1: {class_sample_count}')
+                        weight = 1. / class_sample_count
+                        samples_weight = weight[train_all_label_ids]
 
-#                     # new_majority_proportion = 3
-#                     # class_sample_count[0] /= new_majority_proportion
-#                     # weight = 1. / class_sample_count
-#                     # samples_weight = weight[train_all_label_ids]
+                        # new_majority_proportion = 3
+                        # class_sample_count[0] /= new_majority_proportion
+                        # weight = 1. / class_sample_count
+                        # samples_weight = weight[train_all_label_ids]
 
-#                     samples_weight = torch.from_numpy(samples_weight)       
-#                     train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
-                    train_sampler  = RandomSampler(train_data)
+                        samples_weight = torch.from_numpy(samples_weight)       
+                        train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
+                    elif args.subsampling:
+                        train_sampler  = RandomSampler(train_data)
+                        
                     val_sampler    = SequentialSampler(val_data)
                     test_sampler   = SequentialSampler(test_data)
                 else:
@@ -527,10 +531,10 @@ def runReadmission(args):
 
                     ## "Early stopping" mechanism where validation loss is used to save model checkpoints
                     if args.early_stop:
-                        # if val_loss < min_validation_loss:
-                            # min_validation_loss = val_loss
-                        if val_rp80 > min_val_rp80:
-                            min_val_rp80 = val_rp80
+                        if val_loss < min_validation_loss:
+                            min_validation_loss = val_loss
+                        # if val_rp80 > min_val_rp80:
+                        #     min_val_rp80 = val_rp80
                             checkpoint_model_state = deepcopy(model.state_dict()) #must save a deepcopy, otherwise this is a reference to the state dict that keeps getting updated
 
                     ## Setting model back in training mode:
@@ -690,8 +694,8 @@ def runReadmission(args):
 
             print("Writing mean performances across all folds")
             with open(output_results_file, "a") as writer:
-                logger.info("***** Average performance across all folds *****")
-                writer.write("***** Average performance across all folds *****")
+                logger.info("***** Average performance across all folds *****\n")
+                writer.write("***** Average performance across all folds *****\n")
                 for key in sorted(mean_result.keys()):
                     logger.info("  %s = %s", key, str(mean_result[key]))
                     writer.write("%s = %s\n" % (key, str(mean_result[key])))
