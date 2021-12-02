@@ -189,9 +189,11 @@ def main():
     model.to(device)
     model.eval()
     
+    numFolds = 10
+    
     with torch.no_grad():
         test_batch_size = 1
-        for i in range(10):
+        for i in range(numFolds):
             set_type = "fold" + str(i)
             filename = "fold" + str(i) + "_text.csv"
             filepath = os.path.join(args.data_dir, filename)

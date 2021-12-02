@@ -1072,6 +1072,10 @@ class BertForSequenceClassification(PreTrainedBertModel):
     def __init__(self, config, num_labels, features):
         super(BertForSequenceClassification, self).__init__(config)
         self.bert = BertModel(config)
+        self.classifier = nn.Linear(config.hidden_size, num_labels)  # This layer is unused
+        self.classifier_text_layer_1 = nn.Linear(config.hidden_size, 2048)
+        self.classifier_text_layer_2 = nn.Linear(2048, config.hidden_size)
+        
         classifier_size = 0
         
         if features is not None:
@@ -1123,7 +1127,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
             # ## This is a shared layer, not a fully connected layer, hence all "features" must output tensors with the same size to go through this layer
             # self.shared_layer = SharedLayer(config)
           
-        self.classifier = nn.Linear(classifier_size, num_labels)   
+        self.final_classifier = nn.Linear(classifier_size, num_labels)   
         self.apply(self.init_bert_weights)
 
 
@@ -1131,7 +1135,9 @@ class BertForSequenceClassification(PreTrainedBertModel):
         layer_outputs = []
         if features_name is not None:
             if "clinical_text" in features_name:
-                layer_outputs.append(precomputed_text)
+                clinicaltext_output = self.classifier_text_layer_1(precomputed_text)
+                clinicaltext_output = self.classifier_text_layer_2(clinicaltext_output)
+                layer_outputs.append(clinicaltext_output)
             if "admittime" in features_name:
                 admittime_output = self.admittime_layer(features_tensors[feature_position_dict["admittime"]])
                 layer_outputs.append(admittime_output)
@@ -1168,30 +1174,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
         #Processo final de combinar? Para já concatenação, é linear.... depois bilstm-crf?
         output = torch.cat(([i for i in layer_outputs]),dim=1)
 
-     
-    
-#             # if "admittime" in features_name:
-#             #     print(pooled_output2.size())
-#             #     print(daysnextadmit_output.size())
-#             #     pooled_output2 = torch.cat((pooled_output2, admittime_output), dim=1)
-#             if "daystonextadmit" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, daysnextadmit_output), dim=1)
-#             if "daystoprevadmit" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, daysprevadmit_output), dim=1)
-#             if "duration" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, duration_output), dim=1)
-#             if "small_diag_icd9" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, diag_icd9_output), dim=1)
-#             if "small_proc_icd9" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, proc_icd9_output), dim=1)
-#             if "diag_ccs" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, diag_ccs_output), dim=1)
-#             if "proc_ccs" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, proc_ccs_output), dim=1)
-#             if "cui" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, cui_output), dim=1)
-
-        logits = self.classifier(output)
+        logits = self.final_classifier(output)
         
         if labels is not None:
             loss_fct = BCELoss()
