@@ -193,7 +193,7 @@ def runReadmission(args):
             specialVal = False
             specialTest = False
 
-            cvFolds = 10
+            cvFolds = 5
             folds = [i for i in range(cvFolds)]
             folds_dataset = []
             for i in folds:
@@ -230,6 +230,7 @@ def runReadmission(args):
                 train_idx = [i for i in range(len(train_features))]
                 val_idx = [i for i in range(len(val_features))]
                 test_idx = [i for i in range(len(test_features))]
+                
                 if args.subsampling:
         #   Special sampling to downsample negative class in a random manner, and have equal distribution in the dataset
                     train_idx = get_indices_perclass_and_sample(train_features)
@@ -527,7 +528,7 @@ def runReadmission(args):
                     # print(f'Precision {val_precision[1]}, Recall {val_recall[1]}, F1-Score {val_f1score[1]}') #The first entry is for class 0, the second for class 1
                     val_rp80 = vote_pr_curve(df_val, logits_history, args)
 
-                    wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Recall at Precision 80 (RP80)": val_rp80}) 
+                    wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Val RP80": val_rp80}) 
 
                     ## "Early stopping" mechanism where validation loss is used to save model checkpoints
                     if args.early_stop:
@@ -636,7 +637,7 @@ def runReadmission(args):
                 test_precision, test_recall, test_f1score, test_support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
                 test_rp80 = vote_pr_curve(df_test, logits_history, args)
 
-                wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Recall at Precision 80 (RP80)": test_rp80})          
+                wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Test RP80": test_rp80})          
 
                 result = {'Training loss':        train_loss/number_training_steps,
                           'Validation loss':      val_loss,
@@ -691,6 +692,13 @@ def runReadmission(args):
                           'Test Recall':          sum(history_test_recall)/len(history_test_recall),
                           'Test F1-Score':        sum(history_test_f1score)/len(history_test_f1score),
                           }
+            
+            wandb.log({"KFold Avg Test loss":      sum(history_test_loss)/len(history_test_loss),
+                       "KFold Avg Test Accuracy":  sum(history_test_accuracy)/len(history_test_accuracy),
+                       "KFold Avg RP80":           sum(history_test_RP80)/len(history_test_RP80),
+                       "KFold Avg Test Precision": sum(history_test_precision)/len(history_test_precision),
+                       "KFold Avg Test Recall":    sum(history_test_recall)/len(history_test_recall),
+                       "KFold Avg F1-Score":       sum(history_test_f1score)/len(history_test_f1score)})  
 
             print("Writing mean performances across all folds")
             with open(output_results_file, "a") as writer:
