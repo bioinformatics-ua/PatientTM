@@ -7,10 +7,15 @@ __pycache__/
 data/original/
 data/extended/backup/
 data/extended/discharge/
+data/extended/discharge_finetuned/
 data/extended/3days/
 data/extended/2days/
 data/extended_folds/early
+data/extended_folds/early_finetuned
+data/extended_folds/early_subjectsplit
 data/extended_folds/discharge
+data/extended_folds/discharge_finetuned
+data/extended_folds/discharge_subjectsplit
 src/wandb/
 results/result_discharge/
 results/result_early/
