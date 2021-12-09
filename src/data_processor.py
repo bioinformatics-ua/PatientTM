@@ -145,7 +145,10 @@ class readmissionProcessorNoText(DataProcessor):
                 else: features["daystoprevadmit"] = [float(line[4])]
             else: features["daystoprevadmit"] = None
 
-            if "duration"  in Features: features["duration"] = [float(line[5])]
+            if "duration"  in Features:
+                features["duration"] = float(line[5])
+                if features["duration"] < 0: features["duration"] = [abs(features["duration"])]
+                else: features["duration"] = [float(line[5])]
             else: features["duration"] = None
 
             if "diag_ccs"  in Features:
@@ -228,7 +231,10 @@ class readmissionProcessorText(DataProcessor):
                 else: features["daystoprevadmit"] = [float(line[4])]
             else: features["daystoprevadmit"] = None
 
-            if "duration"  in Features: features["duration"] = [float(line[5])]
+            if "duration"  in Features:
+                features["duration"] = float(line[5])
+                if features["duration"] < 0: features["duration"] = [abs(features["duration"])]
+                else: features["duration"] = [float(line[5])]
             else: features["duration"] = None
 
             if "diag_ccs"  in Features:

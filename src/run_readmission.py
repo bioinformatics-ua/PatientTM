@@ -193,7 +193,7 @@ def runReadmission(args):
             specialVal = False
             specialTest = False
 
-            cvFolds = 5
+            cvFolds = 10
             folds = [i for i in range(cvFolds)]
             folds_dataset = []
             for i in folds:

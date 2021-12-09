@@ -1072,9 +1072,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
     def __init__(self, config, num_labels, features):
         super(BertForSequenceClassification, self).__init__(config)
         self.bert = BertModel(config)
-        self.classifier = nn.Linear(config.hidden_size, num_labels)  # This layer is unused
-        self.classifier_text_layer_1 = nn.Linear(config.hidden_size, 2048)
-        self.classifier_text_layer_2 = nn.Linear(2048, config.hidden_size)
+        self.classifier = nn.Linear(config.hidden_size, num_labels)  # This layer will be unused to avoid using a pre-trained layer
         
         classifier_size = 0
         
@@ -1135,8 +1133,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
         layer_outputs = []
         if features_name is not None:
             if "clinical_text" in features_name:
-                clinicaltext_output = self.classifier_text_layer_1(precomputed_text)
-                clinicaltext_output = self.classifier_text_layer_2(clinicaltext_output)
+                clinicaltext_output = precomputed_text
                 layer_outputs.append(clinicaltext_output)
             if "admittime" in features_name:
                 admittime_output = self.admittime_layer(features_tensors[feature_position_dict["admittime"]])
@@ -1178,7 +1175,12 @@ class BertForSequenceClassification(PreTrainedBertModel):
         
         if labels is not None:
             loss_fct = BCELoss()
-            # loss_fct = BCELoss_class_weighted(weights=[0.4,0.6])
+            # positive_class_weight = 0.6
+            # negative_class_weight = 0.4
+            # weights = [positive_class_weight if label == 1.0 else negative_class_weight for label in labels]
+            # weights = torch.tensor(weights, dtype=torch.float)
+            # loss_fct = BCELoss(weight=weights)
+            # loss_fct = BCELoss_class_weighted(weights=[0.5,1])
             
             m = nn.Sigmoid()
 # NOTE: for multi class the sigmoid activation must be changed to softmax and the loss must be changed from binary cross entropy to cross entropy
