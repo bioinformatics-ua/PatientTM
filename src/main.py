@@ -1,6 +1,7 @@
 import argparse
 
-from run_readmission import runReadmission
+from readmission.run_model import runReadmission
+from diagnosis_prediction.run_model import runDiagnosisPrediction
 
 
 def help(show=False):
@@ -22,8 +23,8 @@ def help(show=False):
                         default=None,
                         required=True,
                         type=str,
-                        choices=["readmission", "code_prediction"],
-                        help="The name of the task to run. Please select one of the following predictive tasks: [readmission, code_prediction].")    
+                        choices=["readmission", "diagnosis_prediction"],
+                        help="The name of the task to run. Please select one of the following predictive tasks: [readmission, diagnosis_prediction].")    
     
     parser.add_argument("--output_dir",
                         default=None,
@@ -137,6 +138,8 @@ def main():
         
     if args.task_name == "readmission":
         runReadmission(args)
+    elif args.task_name == "diagnosis_prediction":
+        runDiagnosisPrediction(args)
     # elif args.task_name == "code_prediction":
     #     runCodePrediction(args)
 

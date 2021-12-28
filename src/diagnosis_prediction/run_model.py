@@ -52,9 +52,9 @@ from pytorch_pretrained_bert.optimization import BertAdam
 from ranger21 import Ranger21 as RangerOptimizer
 #important
 
-from modeling_readmission import BertForSequenceClassification, BertForSequenceClassificationOriginal
-from data_processor import convert_examples_to_features, readmissionProcessorText, readmissionProcessorNoText
-from evaluation import vote_score, vote_pr_curve
+from readmission.modeling_diagnosis import BertForSequenceClassification, BertForSequenceClassificationOriginal
+from readmission.data_processor import convert_examples_to_features, processorText, processorNoText
+from readmission.evaluation import vote_score, vote_pr_curve
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -98,7 +98,7 @@ def get_indices_perclass_and_sample(feature_list):
     return [*indices_0, *indices_1]
 
 
-def runReadmission(args):
+def runDiagnosisPrediction(args):
     
     try:
         logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
@@ -137,12 +137,12 @@ def runReadmission(args):
         
         if "clinical_text" in args.features:
             file_ending = "_text.csv"
-            processors = {"readmission": readmissionProcessorText}
+            processors = {"diagnosis_prediction": processorText}
         else:
             file_ending = "_notext.csv"
-            processors = {"readmission": readmissionProcessorNoText}
+            processors = {"diagnosis_prediction": processorNoText}
 
-
+        numLabels = 1
         maxLenDict={"small_icd9_ccs_maxlen": args.small_icd9_ccs_maxlength, "cui_maxlen": args.cui_maxlength, }
 
         if args.local_rank == -1 or args.no_cuda:
@@ -360,7 +360,7 @@ def runReadmission(args):
 
 
            ## Initialize the model before every fold training
-                model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
+                model = BertForSequenceClassification.from_pretrained(args.bert_model, numLabels, args.features)
 
                 ## Setting WandBI to log gradients and model parameters
                 wandb.watch(model)
