@@ -206,8 +206,10 @@ def runDiagnosisPrediction(args):
             print("All dataset folds loaded.\n")
 
             history_training_loss, history_validation_loss, history_test_loss = [], [], []
-            history_val_accuracy, history_val_RP80, history_val_precision, history_val_recall, history_val_f1score = [], [], [], [], []
-            history_test_accuracy, history_test_RP80, history_test_precision, history_test_recall, history_test_f1score = [], [], [], [], []
+            history_val_microprecision, history_val_microrecall, history_val_microf1, history_val_microAUC, history_val_rp80 = [], [], [], [], []
+            history_val_microAvgPrecisionScore, history_val_recallat10, history_val_recallat20, history_val_recallat30 = [], [], [], []    
+            history_test_microprecision, history_test_microrecall, history_test_microf1, history_test_microAUC, history_test_rp80 = [], [], [], [], []
+            history_test_microAvgPrecisionScore, history_test_recallat10, history_test_recallat20, history_test_recallat30 = [], [], [], []
 
     # Beginning the folding process here
             # repeatedkFold = RepeatedKFold(n_splits=2, n_repeats=2, random_state=2652124)
@@ -502,9 +504,7 @@ def runDiagnosisPrediction(args):
                                 nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
                                 loss, logits = model(labels=labels, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
 
-# #####
-# ##### ISTO TEM DE SER TUDO ALTERADO, NÃO FAZ SENTIDO PARA O PROBLEMA MULTICLASS, AGORA TEMOS UM VETOR DE ARRAYS 
-# #####                
+               
                         logits = m(logits).detach().cpu().numpy() #torch.squeeze(m(logits)).detach().cpu().numpy()
                         logits_history += logits.tolist()                    
                         labels = labels.to('cpu').numpy()
@@ -523,10 +523,20 @@ def runDiagnosisPrediction(args):
                     
                     val_metrics = compute_metrics(df_val, numLabels, args, label="LABEL_NEXT_SMALL_DIAG_ICD9", threshold=0.5)
 
-                    wandb.log({"Validation loss": val_loss, "Val RP80": val_metrics["recall@p80"]}) 
-# #####
-# ##### ATÉ AQUI  
-# #####
+                    wandb.log({"Val Loss":                   val_loss,
+                               "Val RP80":                   val_metrics["recall@p80"],
+                               "Val MicroPrecision":         val_metrics["micro_precision"],
+                               "Val MacroPrecision":         val_metrics["macro_precision"],
+                               "Val MicroRecall":            val_metrics["micro_recall"],
+                               "Val MacroRecall":            val_metrics["macro_recall"],
+                               "Val MicroF1":                val_metrics["micro_f1"],
+                               "Val MacroF1":                val_metrics["macro_f1"],
+                               "Val MicroAUC":               val_metrics["micro_auc"],
+                               "Val MacroAUC":               val_metrics["macro_auc"],
+                               "Val MicroAvgPrecisionScore": val_metrics["micro_avg_precision_score"],
+                               "Val Recall@10":              val_metrics["recall@10"],
+                               "Val Recall@20":              val_metrics["recall@20"],
+                               "Val Recall@30":              val_metrics["recall@30"]})
 
 
                     ## "Early stopping" mechanism where validation loss is used to save model checkpoints
@@ -580,21 +590,15 @@ def runDiagnosisPrediction(args):
                             else:
                                 tmp_test_loss, logits = model(precomputed_texts, labels, features_name=args.features)
                                 # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
-###
-### ISTO AQUI TAMBEM TEM DE SER MUDADO
-###
-                        logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-                        label_ids = label_ids.to('cpu').numpy()
-                        outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                        true_labels = true_labels + label_ids.flatten().tolist()
-                        pred_labels = pred_labels + outputs.flatten().tolist()
-                        logits_history = logits_history + logits.flatten().tolist()
 
-                        test_accuracy += np.sum(outputs == label_ids)
+                        logits = m(logits).detach().cpu().numpy() #torch.squeeze(m(logits)).detach().cpu().numpy()
+                        logits_history += logits.tolist()                    
+                        labels = labels.to('cpu').numpy()
+
                         test_loss += tmp_test_loss.mean().item()
                         nb_test_steps += 1
-                        nb_test_examples += label_ids.size
-
+                        nb_test_examples += labels.size                
+                    
                 else:
                     for labels, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
                         labels = labels.to(device)
@@ -603,79 +607,89 @@ def runDiagnosisPrediction(args):
                         with torch.no_grad():
                             tmp_test_loss, logits = model(labels=labels, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
                             # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)       
-                            
-#####
-##### ISTO TEM DE SER TUDO ALTERADO, NÃO FAZ SENTIDO PARA O PROBLEMA MULTICLASS, AGORA TEMOS UM VETOR DE ARRAYS 
-#####   
-                        logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                                                                           
+                        logits = m(logits).detach().cpu().numpy() #torch.squeeze(m(logits)).detach().cpu().numpy()
+                        logits_history += logits.tolist()                    
                         labels = labels.to('cpu').numpy()
-                        outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                        true_labels = true_labels + labels.flatten().tolist()
-                        pred_labels = pred_labels + outputs.flatten().tolist()
-                        logits_history = logits_history + logits.flatten().tolist()
 
-                        test_accuracy += np.sum(outputs == labels)
                         test_loss += tmp_test_loss.mean().item()
                         nb_test_steps += 1
-                        nb_test_examples += labels.size
+                        nb_test_examples += labels.size  
 
-
-                test_accuracy /= nb_test_examples
                 test_loss = test_loss / nb_test_steps
 
-                # df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
-                # string = 'test_logits_fold' + str(i) + '_' + args.readmission_mode + '_chunks.csv'
-                # df.to_csv(os.path.join(args.output_dir, string))
-
-    ## Special test with original test dataset
+        ## Special test with original test dataset
                 if specialTest:
                     df_test = pd.read_csv("/clinicalBERT/data/extended/discharge/test.csv")
                 else:
                     df_test = pd.read_csv(os.path.join(args.data_dir, "fold" + str(test_index[0]) + file_ending))
                     df_test = df_test.iloc[test_idx, :]
-                fpr, tpr, df_out = vote_score(df_test, logits_history, args)
+                df_test['pred_label_scores'] = logits_history
+                
+                test_metrics = compute_metrics(df_test, numLabels, args, label="LABEL_NEXT_SMALL_DIAG_ICD9", threshold=0.5)
 
-                # string = 'test_logits_fold' + str(test_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
-                # df_out.to_csv(os.path.join(args.output_dir,string))
+                wandb.log({"Test Loss":                   test_loss,
+                           "Test RP80":                   test_metrics["recall@p80"],
+                           "Test MicroPrecision":         test_metrics["micro_precision"],
+                           "Test MacroPrecision":         test_metrics["macro_precision"],
+                           "Test MicroRecall":            test_metrics["micro_recall"],
+                           "Test MacroRecall":            test_metrics["macro_recall"],
+                           "Test MicroF1":                test_metrics["micro_f1"],
+                           "Test MacroF1":                test_metrics["macro_f1"],
+                           "Test MicroAUC":               test_metrics["micro_auc"],
+                           "Test MacroAUC":               test_metrics["macro_auc"],
+                           "Test MicroAvgPrecisionScore": test_metrics["micro_avg_precision_score"],
+                           "Test Recall@10":              test_metrics["recall@10"],
+                           "Test Recall@20":              test_metrics["recall@20"],
+                           "Test Recall@30":              test_metrics["recall@30"]})
 
-                test_precision, test_recall, test_f1score, test_support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
-                test_rp80 = vote_pr_curve(df_test, logits_history, args)
 
-                wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Test RP80": test_rp80})          
-
-#####
-##### ATÉ AQUI 
-#####  
-##### AS MÉTRICAS ABAIXO TAMBÉM TÊM DE SER TODAS MUDADAS
-
-
-                result = {'Training loss':        train_loss/number_training_steps,
-                          'Validation loss':      val_loss,
-                          'Validation accuracy':  val_accuracy,
-                          'Validation RP80':      val_rp80,
-                          'Validation Precision': val_precision[1],
-                          'Validation Recall':    val_recall[1],
-                          'Validation F1-Score':  val_f1score[1],
-                          'Test accuracy':        test_accuracy,
-                          'Test RP80':            test_rp80,
-                          'Test Precision':       test_precision[1],
-                          'Test Recall':          test_recall[1],
-                          'Test F1-Score':        test_f1score[1],
+                result = {'Training loss':               train_loss/number_training_steps,
+                          'Val Loss':                    val_loss,
+                          "Val RP80":                    val_metrics["recall@p80"],
+                          "Val MicroPrecision":          val_metrics["micro_precision"],
+                          "Val MicroRecall":             val_metrics["micro_recall"],
+                          "Val MicroF1":                 val_metrics["micro_f1"],
+                          "Val MicroAUC":                val_metrics["micro_auc"],
+                          "Val MicroAvgPrecisionScore":  val_metrics["micro_avg_precision_score"],
+                          "Val Recall@10":               val_metrics["recall@10"],
+                          "Val Recall@20":               val_metrics["recall@20"],
+                          "Val Recall@30":               val_metrics["recall@30"],
+                          'Test Loss':                   test_loss,
+                          "Test RP80":                   test_metrics["recall@p80"],
+                          "Test MicroPrecision":         test_metrics["micro_precision"],
+                          "Test MicroRecall":            test_metrics["micro_recall"],
+                          "Test MicroF1":                test_metrics["micro_f1"],
+                          "Test MicroAUC":               test_metrics["micro_auc"],
+                          "Test MicroAvgPrecisionScore": test_metrics["micro_avg_precision_score"],
+                          "Test Recall@10":              test_metrics["recall@10"],
+                          "Test Recall@20":              test_metrics["recall@20"],
+                          "Test Recall@30":              test_metrics["recall@30"],
                          }
-
+                          
                 history_training_loss.append(train_loss/number_training_steps)
                 history_validation_loss.append(val_loss)
                 history_test_loss.append(test_loss)
-                history_val_accuracy.append(val_accuracy)
-                history_val_RP80.append(val_rp80)
-                history_val_precision.append(val_precision[1])
-                history_val_recall.append(val_recall[1])
-                history_val_f1score.append(val_f1score[1])
-                history_test_accuracy.append(test_accuracy)
-                history_test_RP80.append(test_rp80)
-                history_test_precision.append(test_precision[1])
-                history_test_recall.append(test_recall[1])
-                history_test_f1score.append(test_f1score[1])
+                history_val_rp80.append(val_metrics["recall@p80"])
+                history_val_microprecision.append(val_metrics["micro_precision"])
+                history_val_microrecall.append(val_metrics["micro_recall"])
+                history_val_microf1.append(val_metrics["micro_f1"])
+                history_val_microAUC.append(val_metrics["micro_auc"])         
+                history_val_microAvgPrecisionScore.append(val_metrics["micro_avg_precision_score"])
+                history_val_recallat10.append(val_metrics["recall@10"])      
+                history_val_recallat20.append(val_metrics["recall@20"])     
+                history_val_recallat30.append(val_metrics["recall@30"])   
+                
+                history_test_rp80.append(test_metrics["recall@p80"])
+                history_test_microprecision.append(test_metrics["micro_precision"])
+                history_test_microrecall.append(test_metrics["micro_recall"])
+                history_test_microf1.append(test_metrics["micro_f1"])
+                history_test_microAUC.append(test_metrics["micro_auc"])         
+                history_test_microAvgPrecisionScore.append(test_metrics["micro_avg_precision_score"])
+                history_test_recallat10.append(test_metrics["recall@10"])      
+                history_test_recallat20.append(test_metrics["recall@20"])     
+                history_test_recallat30.append(test_metrics["recall@30"])  
+                
 
                 output_results_file = os.path.join(args.output_dir, "validation_and_test_results.txt")
                 if not os.path.exists(output_results_file):
@@ -687,28 +701,39 @@ def runDiagnosisPrediction(args):
                         writer.write("***** Results fold %d *****\n" % (i))
                         for key in sorted(result.keys()):
                             logger.info("  %s = %s", key, str(result[key]))
-                            writer.write("%s = %s\n" % (key, str(result[key])))
-
+                            writer.write("%s = %s\n" % (key, str(result[key]))) 
+                            
+                            
             mean_result = {'Training loss':       sum(history_training_loss)/len(history_training_loss),
-                          'Validation loss':      sum(history_validation_loss)/len(history_validation_loss),
-                          'Validation accuracy':  sum(history_val_accuracy)/len(history_val_accuracy),               
-                          'Validation RP80':      sum(history_val_RP80)/len(history_val_RP80),
-                          'Validation Precision': sum(history_val_precision)/len(history_val_precision),
-                          'Validation Recall':    sum(history_val_recall)/len(history_val_recall),
-                          'Validation F1-Score':  sum(history_val_f1score)/len(history_val_f1score),
-                          'Test accuracy':        sum(history_test_accuracy)/len(history_test_accuracy),               
-                          'Test RP80':            sum(history_test_RP80)/len(history_test_RP80),
-                          'Test Precision':       sum(history_test_precision)/len(history_test_precision),
-                          'Test Recall':          sum(history_test_recall)/len(history_test_recall),
-                          'Test F1-Score':        sum(history_test_f1score)/len(history_test_f1score),
-                          }
+                           "Validation loss":           sum(history_val_loss)/len(history_val_loss),
+                           "Validation RP80":           sum(history_val_rp80)/len(history_val_rp80),
+                           "Validation Micro F1":       sum(history_val_microf1)/len(history_val_microf1),                   
+                           "Validation Micro AUC":      sum(history_val_microAUC)/len(history_val_microAUC),
+                           "Validation Micro Avg Precision Score":       sum(history_val_microAvgPrecisionScore)/len(history_val_microAvgPrecisionScore),                
+                           "Validation Recall@10":      sum(history_val_recallat10)/len(history_val_recallat10),
+                           "Validation Recall@20":      sum(history_val_recallat20)/len(history_val_recallat20),
+                           "Validation Recall@30":      sum(history_val_recallat30)/len(history_val_recallat30)
+                           "Test loss":                 sum(history_test_loss)/len(history_test_loss),
+                           "Test RP80":                 sum(history_test_rp80)/len(history_test_rp80),
+                           "Test Micro F1":             sum(history_test_microf1)/len(history_test_microf1),                   
+                           "Test Micro AUC":            sum(history_test_microAUC)/len(history_test_microAUC),
+                           "Test Micro Avg Precision Score":       sum(history_test_microAvgPrecisionScore)/len(history_test_microAvgPrecisionScore),                
+                           "Test Recall@10":            sum(history_test_recallat10)/len(history_test_recallat10),
+                           "Test Recall@20":            sum(history_test_recallat20)/len(history_test_recallat20),
+                           "Test Recall@30":            sum(history_test_recallat30)/len(history_test_recallat30)
+                          }  
+                          
             
             wandb.log({"KFold Avg Test loss":      sum(history_test_loss)/len(history_test_loss),
-                       "KFold Avg Test Accuracy":  sum(history_test_accuracy)/len(history_test_accuracy),
-                       "KFold Avg RP80":           sum(history_test_RP80)/len(history_test_RP80),
-                       "KFold Avg Test Precision": sum(history_test_precision)/len(history_test_precision),
-                       "KFold Avg Test Recall":    sum(history_test_recall)/len(history_test_recall),
-                       "KFold Avg F1-Score":       sum(history_test_f1score)/len(history_test_f1score)})  
+                       "KFold Avg RP80":           sum(history_test_rp80)/len(history_test_rp80),
+                       "KFold Avg Micro F1":       sum(history_test_microf1)/len(history_test_microf1),                   
+                       "KFold Avg Micro AUC":      sum(history_test_microAUC)/len(history_test_microAUC),
+                       "KFold Avg Micro Avg Precision Score":       sum(history_test_microAvgPrecisionScore)/len(history_test_microAvgPrecisionScore),                
+                       "KFold Avg Recall@10":      sum(history_test_recallat10)/len(history_test_recallat10),
+                       "KFold Avg Recall@20":      sum(history_test_recallat20)/len(history_test_recallat20),
+                       "KFold Avg Recall@30":      sum(history_test_recallat30)/len(history_test_recallat30)})  
+            
+
 
             print("Writing mean performances across all folds")
             with open(output_results_file, "a") as writer:

@@ -111,28 +111,26 @@ def compute_metrics(dataFrame, numLabels, args, label, threshold=0.5):
     micro_auc = auroc(yPredScores, yTrueLabel, num_classes=numLabels, average='micro')
     macro_auc = auroc(yPredScores, yTrueLabel, num_classes=numLabels, average='macro')
     
-    # Recall@precision80 and AUC
+    # Recall@precision80
     precision, recall, thresholds = precision_recall_curve(yPredScores, yTrueLabel, num_classes=numLabels)
-    # aupr = auc(recall, precision) # Using average precision score instead of AU-PR which can be too optimistic
+    # aupr = auc(recall, precision) # Using average precision score above instead of AU-PR here as AU-PR uses interpolation and can be too optimistic
+    rp80_list = []
+    for prec, rec, threshold in zip(precision, recall, thresholds):
+        pr_thres = pd.DataFrame(data = list(zip(prec, rec, threshold)), columns = ['prec','recall','thres'])
+        temp = pr_thres[pr_thres.prec > 0.799999].reset_index()
+        rp80 = 0
+        if temp.size == 0:
+            pass
+            # print('Sample too small or RP80=0')
+        else:
+            rp80 = temp.iloc[0].recall
+            # print('Recall at Precision of 80 is {}', rp80)
+            
+        rp80_list.append(rp80) # colocar isto dentro do else? favorece muito os resultados
+    average_rp_80 = sum(rp80_list)/len(rp80_list)
+   
 
-#talvez tenha de tirar varios rp80 e fazer uma media
-    print(precision.shape)
-    print(len(precision))
-    
-
-
-    pr_thres = pd.DataFrame(data = list(zip(precision, recall, thresholds)), columns = ['prec','recall','thres'])
-    temp = pr_thres[pr_thres.prec > 0.799999].reset_index()
-    rp80 = 0
-    if temp.size == 0:
-        print('Sample too small or RP80=0')
-    else:
-        rp80 = temp.iloc[0].recall
-        print('Recall at Precision of 80 is {}', rp80)
-    
-
-    ### plot roc and pr curves? not for now
-    
+    ### plot roc and pr curves? not for now  
     
     metrics["micro_precision"] = micro_precision
     metrics["macro_precision"] = macro_precision
@@ -143,7 +141,7 @@ def compute_metrics(dataFrame, numLabels, args, label, threshold=0.5):
     metrics["micro_auc"] = micro_auc
     metrics["macro_auc"] = macro_auc
     metrics["micro_avg_precision_score"] = micro_avg_precision_score
-    metrics["recall@p80"] = rp80
+    metrics["recall@p80"] = average_rp_80
     metrics["recall@10"] = recall_at_10
     metrics["recall@20"] = recall_at_20
     metrics["recall@30"] = recall_at_30
