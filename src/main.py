@@ -25,6 +25,12 @@ def help(show=False):
                         type=str,
                         choices=["readmission", "diagnosis_prediction"],
                         help="The name of the task to run. Please select one of the following predictive tasks: [readmission, diagnosis_prediction].")    
+    parser.add_argument("--codes_to_predict",
+                        default=None,
+                        required=False,
+                        type=str,
+                        choices=["small_diag_icd9"],
+                        help="The type of code to predict in code predicting tasks. Please select one of the following predictive tasks: [small_diag_icd9].")    
     
     parser.add_argument("--output_dir",
                         default=None,

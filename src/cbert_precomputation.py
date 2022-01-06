@@ -38,7 +38,7 @@ from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam
 #important
 
-from modeling_readmission import BertForSequenceClassificationOriginal
+from readmission.modeling_readmission import BertForSequenceClassificationOriginal
 from data_processor_precomputation import convert_examples_to_features, readmissionProcessor
 
 
@@ -195,7 +195,8 @@ def main():
         test_batch_size = 1
         for i in range(numFolds):
             set_type = "fold" + str(i)
-            filename = "fold" + str(i) + "_text.csv"
+            # filename = "fold" + str(i) + "_text.csv"
+            filename = "fold" + str(i) + "_codeprediction_text.csv"
             filepath = os.path.join(args.data_dir, filename)
             examples = processor.get_examples(filepath, set_type)
          
@@ -228,7 +229,8 @@ def main():
                 hadm_id_idx+=1
                 
             array = np.asarray(rows_list, dtype=object)
-            array_filepath = "../data/extended_folds/" + args.readmission_mode + "/fold" + str(i) + "_text_precomputed.npy"
+            # array_filepath = "../data/extended_folds/" + args.readmission_mode + "/fold" + str(i) + "_text_precomputed.npy"
+            array_filepath = "../data/extended_folds/" + args.readmission_mode + "/fold" + str(i) + "_codeprediction_text_precomputed.npy"
             np.save(array_filepath, array)
         
     
