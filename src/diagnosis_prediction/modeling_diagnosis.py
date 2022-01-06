@@ -30,7 +30,7 @@ import shutil
 import torch
 import numpy as np
 from torch import nn
-from torch.nn import CrossEntropyLoss, BCELoss
+from torch.nn import BCEWithLogitsLoss
 from torch.nn.functional import mish as Mish
 from torch.nn.functional import relu as ReLU
 
@@ -1072,7 +1072,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
     def __init__(self, config, num_labels, features):
         super(BertForSequenceClassification, self).__init__(config)
         self.bert = BertModel(config)
-        self.classifier = nn.Linear(config.hidden_size, num_labels)  # This layer will be unused to avoid using a pre-trained layer
+        self.classifier = nn.Linear(config.hidden_size, 1)  # This layer will be unused to avoid using a pre-trained layer
         
         classifier_size = 0
         
@@ -1174,29 +1174,13 @@ class BertForSequenceClassification(PreTrainedBertModel):
         logits = self.final_classifier(output)
         
         if labels is not None:
-            loss_fct = BCELoss()
-            # positive_class_weight = 0.6
-            # negative_class_weight = 0.4
-            # weights = [positive_class_weight if label == 1.0 else negative_class_weight for label in labels]
-            # weights = torch.tensor(weights, dtype=torch.float)
-            # loss_fct = BCELoss(weight=weights)
-            # loss_fct = BCELoss_class_weighted(weights=[0.5,1])
-            
-            m = nn.Sigmoid()
-# NOTE: for multi class the sigmoid activation must be changed to softmax and the loss must be changed from binary cross entropy to cross entropy
-            n = torch.squeeze(m(logits), dim=-1)
-            loss = loss_fct(n, labels.float())
+            loss_criterion = BCEWithLogitsLoss()  
+            loss = loss_criterion(logits, labels.float())
             return loss, logits
         else:
             return logits
 
-        
-def BCELoss_class_weighted(weights):
-    def loss(logits, labels):
-        input = torch.clamp(logits,min=1e-7,max=1-1e-7)
-        bce = - weights[1] * labels * torch.log(logits) - (1 - labels) * weights[0] * torch.log(1 - logits)
-        return torch.mean(bce)
-    return loss
+
         
         
         

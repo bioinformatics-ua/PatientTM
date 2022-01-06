@@ -24,7 +24,7 @@ class InputExample(object):
             Only must be specified for sequence pair tasks.
         """
         self.guid = guid
-        self.label = features["label"]
+        self.label = features["LABEL_NEXT_SMALL_DIAG_ICD9"]
         self.hadm_id = features["hadm_id"]
         self.clinical_text = None
         self.admittime = None
@@ -53,7 +53,7 @@ class InputFeatures(object):
 
     def __init__(self, features):
         
-        self.label_id = features["label_id"]
+        self.label = features["label"]
         self.hadm_id = features["hadm_id"]   
         
         if "clinical_text" in features.keys():   self.clinical_text = features["clinical_text"]
@@ -94,7 +94,8 @@ class DataProcessor(object):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
         lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
-                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.TEXT)
+                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.TEXT,\
+                  file.LABEL_NEXT_SMALL_DIAG_ICD9)
         return lines
     
     def _read_precomputed_npy(cls, input_file):
@@ -105,14 +106,14 @@ class DataProcessor(object):
 
 class processorNoText(DataProcessor):
     def get_examples(self, data_dir, features=None, fold=0):
-        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_notext.csv"))
+        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_codeprediction_notext.csv"))
         return self._create_examples(datasetFile, "fold"+str(fold), features)
     
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
         lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
-                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI)
+                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.LABEL_NEXT_SMALL_DIAG_ICD9)
         return lines
     
     def _create_examples(self, linesAllFeatures, set_type, Features=None):
@@ -178,7 +179,8 @@ class processorNoText(DataProcessor):
             else: features["cui"] = None
 
             features["hadm_id"] = line[1]
-            features["label"] = str(int(line[14]))
+            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = [x for x in processString(line[14],charsToRemove = "[] ").split(',')]
+            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = np.asarray(features["LABEL_NEXT_SMALL_DIAG_ICD9"], dtype=np.int)
 
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))
@@ -192,8 +194,8 @@ class processorText(DataProcessor):
             datasetFile = self._read_csv(data_dir)
             precomputedEmbeddingsFile = self._read_precomputed_npy(numpy_dir)
         else:
-            datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_text.csv"))
-            precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_text_precomputed.npy"))
+            datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_codeprediction_text.csv"))
+            precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_codeprediction_text_precomputed.npy"))
         return self._create_examples(datasetFile, precomputedEmbeddingsFile, "fold"+str(fold), features)
     
     def _create_examples(self, linesAllFeatures, linesPrecomputed, set_type, Features=None):
@@ -260,7 +262,9 @@ class processorText(DataProcessor):
             else: features["cui"] = None
 
             features["hadm_id"] = line[1]
-            features["label"] = str(int(line[14]))
+            
+            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = [x for x in processString(line[15],charsToRemove = "[] ").split(',')]
+            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = np.asarray(features["LABEL_NEXT_SMALL_DIAG_ICD9"], dtype=np.int)
 
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))
@@ -276,7 +280,7 @@ def convertToIds(feature, idsMappingDict):
     return [idsMappingDict[str(entry)] for entry in feature]
 
 
-def convert_examples_to_features(examples, label_list, Features, maxLenDict):
+def convert_examples_to_features(examples, Features, maxLenDict):
     """Loads a data file into a list of `InputBatch`s."""
 
     if Features is not None:
@@ -293,10 +297,6 @@ def convert_examples_to_features(examples, label_list, Features, maxLenDict):
             with open("../data/extended/preprocessing/idxFiles/cui_NDCToIdx.json","r") as file:
                 cuiMappingDict = json.load(file)
 
-    label_map = {}
-    for (i, label) in enumerate(label_list):
-        label_map[label] = i
-
     features = []
     for (ex_index, example) in enumerate(examples):
         feature = dict()
@@ -304,9 +304,8 @@ def convert_examples_to_features(examples, label_list, Features, maxLenDict):
         if "clinical_text" in Features:
             feature["clinical_text"] = example.clinical_text
          
-        label_id = label_map[example.label]
-        feature["label_id"]=label_id
-        feature["hadm_id"]=example.hadm_id
+        feature["label"] = example.label
+        feature["hadm_id"] = example.hadm_id
 
         if "admittime" in Features: feature["admittime"] = example.admittime
         if "daystonextadmit" in Features: feature["daystonextadmit"] = example.daystonextadmit

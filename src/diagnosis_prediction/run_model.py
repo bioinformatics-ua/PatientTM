@@ -23,6 +23,7 @@ from __future__ import print_function
 
 import csv
 import os
+import json
 import time
 import shutil
 import logging
@@ -52,9 +53,9 @@ from pytorch_pretrained_bert.optimization import BertAdam
 from ranger21 import Ranger21 as RangerOptimizer
 #important
 
-from readmission.modeling_diagnosis import BertForSequenceClassification, BertForSequenceClassificationOriginal
-from readmission.data_processor import convert_examples_to_features, processorText, processorNoText
-from readmission.evaluation import vote_score, vote_pr_curve
+from diagnosis_prediction.modeling_diagnosis import BertForSequenceClassification, BertForSequenceClassificationOriginal
+from diagnosis_prediction.data_processor import convert_examples_to_features, processorText, processorNoText
+from diagnosis_prediction.evaluation import compute_metrics
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -136,13 +137,17 @@ def runDiagnosisPrediction(args):
             wandb.config.early_stop = args.early_stop
         
         if "clinical_text" in args.features:
-            file_ending = "_text.csv"
+            file_ending = "_codeprediction_text.csv"
             processors = {"diagnosis_prediction": processorText}
         else:
-            file_ending = "_notext.csv"
+            file_ending = "_codeprediction_notext.csv"
             processors = {"diagnosis_prediction": processorNoText}
 
-        numLabels = 1
+        if args.codes_to_predict == "small_diag_icd9":
+            with open("../data/extended_folds/preprocessing/smallICDdiagMapping.json", "r") as file:    
+                icd9DiagCodeToIdx = json.load(file)
+            numLabels = len(icd9DiagCodeToIdx)
+                                
         maxLenDict={"small_icd9_ccs_maxlen": args.small_icd9_ccs_maxlength, "cui_maxlen": args.cui_maxlength, }
 
         if args.local_rank == -1 or args.no_cuda:
@@ -186,7 +191,6 @@ def runDiagnosisPrediction(args):
             raise ValueError("Task not found: %s" % (task_name))
 
         processor = processors[task_name]()
-        label_list = processor.get_labels()
 
         if args.do_train:
 
@@ -198,7 +202,7 @@ def runDiagnosisPrediction(args):
             folds_dataset = []
             for i in folds:
                 dataset = processor.get_examples(args.data_dir, features=args.features, fold=i)
-                folds_dataset.append(convert_examples_to_features(dataset, label_list, args.features, maxLenDict))
+                folds_dataset.append(convert_examples_to_features(dataset, args.features, maxLenDict))
             print("All dataset folds loaded.\n")
 
             history_training_loss, history_validation_loss, history_test_loss = [], [], []
@@ -250,21 +254,21 @@ def runDiagnosisPrediction(args):
 
                 if "clinical_text" in args.features:
                     train_precomputed_text = torch.tensor([f.clinical_text for f in train_features], dtype=torch.float)
-                    train_all_label_ids    = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-                    train_tensors          = [train_precomputed_text, train_all_label_ids]
+                    train_all_labels       = torch.tensor([f.label for f in train_features], dtype=torch.long)
+                    train_tensors          = [train_precomputed_text, train_all_labels]
                     val_precomputed_text   = torch.tensor([f.clinical_text for f in val_features], dtype=torch.float)
-                    val_all_label_ids      = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
-                    val_tensors            = [val_precomputed_text, val_all_label_ids]
+                    val_all_labels         = torch.tensor([f.label for f in val_features], dtype=torch.long)
+                    val_tensors            = [val_precomputed_text, val_all_labels]
                     test_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
-                    test_all_label_ids     = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-                    test_tensors           = [test_precomputed_texts, test_all_label_ids]
+                    test_all_labels        = torch.tensor([f.label for f in test_features], dtype=torch.long)
+                    test_tensors           = [test_precomputed_texts, test_all_labels]
                 else:
-                    train_all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-                    train_tensors       = [train_all_label_ids]
-                    val_all_label_ids   = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
-                    val_tensors         = [val_all_label_ids]
-                    test_label_ids      = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-                    test_tensors        = [test_label_ids]
+                    train_all_labels    = torch.tensor([f.label for f in train_features], dtype=torch.long)
+                    train_tensors       = [train_all_labels]
+                    val_all_labels      = torch.tensor([f.label for f in val_features], dtype=torch.long)
+                    val_tensors         = [val_all_labels]
+                    test_labels         = torch.tensor([f.label for f in test_features], dtype=torch.long)
+                    test_tensors        = [test_labels]
 
                 featurePositionDict = {}
                 positionIdx=0
@@ -330,23 +334,25 @@ def runDiagnosisPrediction(args):
 
 
                 if args.local_rank == -1:
-                    if not args.subsampling:
-                        # print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
-                        class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
-                        print(f'Target train class distribution 0/1: {class_sample_count}')
-                        weight = 1. / class_sample_count
-                        samples_weight = weight[train_all_label_ids]
+#SAMPLING IS NOT IMPLEMENTED FOR THIS MULTICLASS MULTILABEL PROBLEM                 
+#                     if not args.subsampling:
+#                         # print(f'target train 0/1: {len(np.where(train_all_label_ids == 0)[0])}/{len(np.where(train_all_label_ids == 1)[0])}')
+#                         class_sample_count = np.unique(train_all_label_ids, return_counts=True)[1]
+#                         print(f'Target train class distribution 0/1: {class_sample_count}')
+#                         weight = 1. / class_sample_count
+#                         samples_weight = weight[train_all_label_ids]
 
-                        # new_majority_proportion = 3
-                        # class_sample_count[0] /= new_majority_proportion
-                        # weight = 1. / class_sample_count
-                        # samples_weight = weight[train_all_label_ids]
+#                         # new_majority_proportion = 3
+#                         # class_sample_count[0] /= new_majority_proportion
+#                         # weight = 1. / class_sample_count
+#                         # samples_weight = weight[train_all_label_ids]
 
-                        samples_weight = torch.from_numpy(samples_weight)       
-                        train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
-                    elif args.subsampling:
-                        train_sampler  = RandomSampler(train_data)
+#                         samples_weight = torch.from_numpy(samples_weight)       
+#                         train_sampler  = WeightedRandomSampler(weights=samples_weight, num_samples=len(samples_weight), replacement=True)    
+#                     elif args.subsampling:
+#                         train_sampler  = RandomSampler(train_data)
                         
+                    train_sampler  = RandomSampler(train_data)    
                     val_sampler    = SequentialSampler(val_data)
                     test_sampler   = SequentialSampler(test_data)
                 else:
@@ -416,20 +422,20 @@ def runDiagnosisPrediction(args):
                         # batch = tuple(t.to(device) for t in batch)
                         #
                         if "clinical_text" in args.features:
-                            precomputed_texts, label_ids, *nonTextFeatures = batch
+                            precomputed_texts, labels, *nonTextFeatures = batch
                             precomputed_texts = precomputed_texts.to(device)
-                            label_ids = label_ids.to(device)     
+                            labels = labels.to(device)     
                             if nonTextFeatures:
                                 nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                                loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                loss, logits = model(precomputed_texts, labels, features_name=args.features, features_tensors=nonTextFeatures,
                                                      feature_position_dict=featurePositionDict) 
                             else:
-                                loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                                loss, logits = model(precomputed_texts, labels, features_name=args.features)
                         else:
-                            label_ids, *nonTextFeatures = batch
-                            label_ids = label_ids.to(device) 
+                            labels, *nonTextFeatures = batch
+                            labels = labels.to(device) 
                             nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                            loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                            loss, logits = model(labels=labels, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
 
 
                         if n_gpu > 1:
@@ -481,34 +487,31 @@ def runDiagnosisPrediction(args):
                         ## Turning off gradient computation for safety
                         with torch.no_grad():
                             if "clinical_text" in args.features:
-                                precomputed_texts, label_ids, *nonTextFeatures = batch
+                                precomputed_texts, labels, *nonTextFeatures = batch
                                 precomputed_texts = precomputed_texts.to(device)
-                                label_ids = label_ids.to(device)    
+                                labels = labels.to(device)    
                                 if nonTextFeatures:
                                     nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                                    loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                    loss, logits = model(precomputed_texts, labels, features_name=args.features, features_tensors=nonTextFeatures,
                                                          feature_position_dict=featurePositionDict) 
                                 else:
-                                    loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                                    loss, logits = model(precomputed_texts, labels, features_name=args.features)
                             else:
-                                label_ids, *nonTextFeatures = batch
-                                label_ids = label_ids.to(device) 
+                                labels, *nonTextFeatures = batch
+                                labels = labels.to(device) 
                                 nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                                loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                                loss, logits = model(labels=labels, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
 
-                        logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-                        label_ids = label_ids.to('cpu').numpy()
-                        outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                        true_labels = true_labels + label_ids.flatten().tolist()
-                        pred_labels = pred_labels + outputs.flatten().tolist()
-                        logits_history = logits_history + logits.flatten().tolist()
+# #####
+# ##### ISTO TEM DE SER TUDO ALTERADO, NÃO FAZ SENTIDO PARA O PROBLEMA MULTICLASS, AGORA TEMOS UM VETOR DE ARRAYS 
+# #####                
+                        logits = m(logits).detach().cpu().numpy() #torch.squeeze(m(logits)).detach().cpu().numpy()
+                        logits_history += logits.tolist()                    
+                        labels = labels.to('cpu').numpy()
 
-                        val_accuracy += np.sum(outputs == label_ids)
                         val_loss += loss.mean().item()
                         nb_val_steps += 1
-                        nb_val_examples += label_ids.size
-
-                    val_accuracy /= nb_val_examples
+                        nb_val_examples += labels.size                
                     val_loss = val_loss/nb_val_steps
 
                     if specialTest:
@@ -516,19 +519,15 @@ def runDiagnosisPrediction(args):
                     else:
                         df_val = pd.read_csv(os.path.join(args.data_dir, "fold" + str(val_index[0]) + file_ending))
                         df_val = df_val.iloc[val_idx, :]
+                    df_val['pred_label_scores'] = logits_history
+                    
+                    val_metrics = compute_metrics(df_val, numLabels, args, label="LABEL_NEXT_SMALL_DIAG_ICD9", threshold=0.5)
 
-                    fpr, tpr, df_out = vote_score(df_val, logits_history, args)
-                    print(df_out)
-                    print(max(logits_history))
-                    # string = 'validation_logits_fold' + str(val_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
-                    # df_out.to_csv(os.path.join(args.output_dir,string))
+                    wandb.log({"Validation loss": val_loss, "Val RP80": val_metrics["recall@p80"]}) 
+# #####
+# ##### ATÉ AQUI  
+# #####
 
-                    val_precision, val_recall, val_f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
-                    print(f'Precision {val_precision}, Recall {val_recall}, F1-Score {val_f1score}') #The first entry is for class 0, the second for class 1
-                    # print(f'Precision {val_precision[1]}, Recall {val_recall[1]}, F1-Score {val_f1score[1]}') #The first entry is for class 0, the second for class 1
-                    val_rp80 = vote_pr_curve(df_val, logits_history, args)
-
-                    wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Val RP80": val_rp80}) 
 
                     ## "Early stopping" mechanism where validation loss is used to save model checkpoints
                     if args.early_stop:
@@ -568,20 +567,22 @@ def runDiagnosisPrediction(args):
                 logits_history=[]
 
                 if "clinical_text" in args.features:
-                    for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                    for precomputed_texts, labels, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
                         precomputed_texts = precomputed_texts.to(device)
-                        label_ids = label_ids.to(device)
+                        labels = labels.to(device)
 
                         with torch.no_grad():
                             if nonTextFeatures:
                                 nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                                tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                tmp_test_loss, logits = model(precomputed_texts, labels, features_name=args.features, features_tensors=nonTextFeatures,
                                                               feature_position_dict=featurePositionDict)
                                 # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
                             else:
-                                tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                                tmp_test_loss, logits = model(precomputed_texts, labels, features_name=args.features)
                                 # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
-
+###
+### ISTO AQUI TAMBEM TEM DE SER MUDADO
+###
                         logits = torch.squeeze(m(logits)).detach().cpu().numpy()
                         label_ids = label_ids.to('cpu').numpy()
                         outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
@@ -595,25 +596,28 @@ def runDiagnosisPrediction(args):
                         nb_test_examples += label_ids.size
 
                 else:
-                    for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
-                        label_ids = label_ids.to(device)
+                    for labels, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                        labels = labels.to(device)
                         nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
 
                         with torch.no_grad():
-                            tmp_test_loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
-                            # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)                    
-
+                            tmp_test_loss, logits = model(labels=labels, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+                            # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)       
+                            
+#####
+##### ISTO TEM DE SER TUDO ALTERADO, NÃO FAZ SENTIDO PARA O PROBLEMA MULTICLASS, AGORA TEMOS UM VETOR DE ARRAYS 
+#####   
                         logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-                        label_ids = label_ids.to('cpu').numpy()
+                        labels = labels.to('cpu').numpy()
                         outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                        true_labels = true_labels + label_ids.flatten().tolist()
+                        true_labels = true_labels + labels.flatten().tolist()
                         pred_labels = pred_labels + outputs.flatten().tolist()
                         logits_history = logits_history + logits.flatten().tolist()
 
-                        test_accuracy += np.sum(outputs == label_ids)
+                        test_accuracy += np.sum(outputs == labels)
                         test_loss += tmp_test_loss.mean().item()
                         nb_test_steps += 1
-                        nb_test_examples += label_ids.size
+                        nb_test_examples += labels.size
 
 
                 test_accuracy /= nb_test_examples
@@ -638,6 +642,12 @@ def runDiagnosisPrediction(args):
                 test_rp80 = vote_pr_curve(df_test, logits_history, args)
 
                 wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Test RP80": test_rp80})          
+
+#####
+##### ATÉ AQUI 
+#####  
+##### AS MÉTRICAS ABAIXO TAMBÉM TÊM DE SER TODAS MUDADAS
+
 
                 result = {'Training loss':        train_loss/number_training_steps,
                           'Validation loss':      val_loss,
@@ -712,188 +722,188 @@ def runDiagnosisPrediction(args):
 
 
 
-    ##
-    ## ATTENTION!!!!: The test method is working with hardcoded filepaths as it was only used to evaluate the problems with the original datasets vs folded dataset
-    ##
-        if args.do_test:
+#     ##
+#     ## ATTENTION!!!!: The test method is working with hardcoded filepaths as it was only used to evaluate the problems with the original datasets vs folded dataset
+#     ##
+#         if args.do_test:
 
-            csv_filepath = "/clinicalBERT/data/extended/discharge/test.csv"
-            npy_precomputed_filepath = "/clinicalBERT/data/extended/discharge/test_precomputed_text.npy"
+#             csv_filepath = "/clinicalBERT/data/extended/discharge/test.csv"
+#             npy_precomputed_filepath = "/clinicalBERT/data/extended/discharge/test_precomputed_text.npy"
 
-            test_dataset = processor.get_examples(csv_filepath, features=args.features, fold=0, numpy_dir=npy_precomputed_filepath)
-            test_features = convert_examples_to_features(test_dataset, label_list, args.features, maxLenDict)
+#             test_dataset = processor.get_examples(csv_filepath, features=args.features, fold=0, numpy_dir=npy_precomputed_filepath)
+#             test_features = convert_examples_to_features(test_dataset, label_list, args.features, maxLenDict)
 
-            if "clinical_text" in args.features:
-                test_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
-                test_all_label_ids     = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-                print(np.unique(test_all_label_ids, return_counts=True))
-                test_tensors           = [test_precomputed_texts, test_all_label_ids]
-            else:
-                test_label_ids      = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-                test_tensors        = [test_label_ids]
+#             if "clinical_text" in args.features:
+#                 test_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
+#                 test_all_label_ids     = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+#                 print(np.unique(test_all_label_ids, return_counts=True))
+#                 test_tensors           = [test_precomputed_texts, test_all_label_ids]
+#             else:
+#                 test_label_ids      = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+#                 test_tensors        = [test_label_ids]
 
-            featurePositionDict = {}
-            positionIdx=0
+#             featurePositionDict = {}
+#             positionIdx=0
 
-            if "admittime" in args.features:
-                test_tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long)) #long, float, or other??!
-                featurePositionDict["admittime"] = positionIdx
-                positionIdx+=1
-            if "daystonextadmit" in args.features:
-                test_tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
-                featurePositionDict["daystonextadmit"] = positionIdx
-                positionIdx+=1
-            if "daystoprevadmit" in args.features:
-                test_tensors.append(torch.tensor([f.daystoprevadmit for f in test_features], dtype=torch.float))
-                featurePositionDict["daystoprevadmit"] = positionIdx
-                positionIdx+=1            
-            if "duration"  in args.features:
-                test_tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.float))
-                featurePositionDict["duration"] = positionIdx
-                positionIdx+=1
-            if "diag_ccs"  in args.features:
-                test_tensors.append(torch.tensor([f.diag_ccs for f in test_features], dtype=torch.long))
-                featurePositionDict["diag_ccs"] = positionIdx
-                positionIdx+=1
-            if "proc_ccs"  in args.features:
-                test_tensors.append(torch.tensor([f.proc_ccs for f in test_features], dtype=torch.long))
-                featurePositionDict["proc_ccs"] = positionIdx
-                positionIdx+=1
-            if "small_diag_icd9" in args.features:
-                test_tensors.append(torch.tensor([f.small_diag_icd9 for f in test_features], dtype=torch.long))
-                featurePositionDict["small_diag_icd9"] = positionIdx
-                positionIdx+=1
-            if "small_proc_icd9" in args.features:
-                test_tensors.append(torch.tensor([f.small_proc_icd9 for f in test_features], dtype=torch.long))
-                featurePositionDict["small_proc_icd9"] = positionIdx
-                positionIdx+=1    
-            if "cui" in args.features:
-                test_tensors.append(torch.tensor([f.cui for f in test_features], dtype=torch.long))
-                featurePositionDict["cui"] = positionIdx
-                positionIdx+=1
+#             if "admittime" in args.features:
+#                 test_tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long)) #long, float, or other??!
+#                 featurePositionDict["admittime"] = positionIdx
+#                 positionIdx+=1
+#             if "daystonextadmit" in args.features:
+#                 test_tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
+#                 featurePositionDict["daystonextadmit"] = positionIdx
+#                 positionIdx+=1
+#             if "daystoprevadmit" in args.features:
+#                 test_tensors.append(torch.tensor([f.daystoprevadmit for f in test_features], dtype=torch.float))
+#                 featurePositionDict["daystoprevadmit"] = positionIdx
+#                 positionIdx+=1            
+#             if "duration"  in args.features:
+#                 test_tensors.append(torch.tensor([f.duration for f in test_features], dtype=torch.float))
+#                 featurePositionDict["duration"] = positionIdx
+#                 positionIdx+=1
+#             if "diag_ccs"  in args.features:
+#                 test_tensors.append(torch.tensor([f.diag_ccs for f in test_features], dtype=torch.long))
+#                 featurePositionDict["diag_ccs"] = positionIdx
+#                 positionIdx+=1
+#             if "proc_ccs"  in args.features:
+#                 test_tensors.append(torch.tensor([f.proc_ccs for f in test_features], dtype=torch.long))
+#                 featurePositionDict["proc_ccs"] = positionIdx
+#                 positionIdx+=1
+#             if "small_diag_icd9" in args.features:
+#                 test_tensors.append(torch.tensor([f.small_diag_icd9 for f in test_features], dtype=torch.long))
+#                 featurePositionDict["small_diag_icd9"] = positionIdx
+#                 positionIdx+=1
+#             if "small_proc_icd9" in args.features:
+#                 test_tensors.append(torch.tensor([f.small_proc_icd9 for f in test_features], dtype=torch.long))
+#                 featurePositionDict["small_proc_icd9"] = positionIdx
+#                 positionIdx+=1    
+#             if "cui" in args.features:
+#                 test_tensors.append(torch.tensor([f.cui for f in test_features], dtype=torch.long))
+#                 featurePositionDict["cui"] = positionIdx
+#                 positionIdx+=1
 
-            test_data  = TensorDataset(*test_tensors)
+#             test_data  = TensorDataset(*test_tensors)
 
-            if args.local_rank == -1:
-                test_sampler   = SequentialSampler(test_data)
-            else:
-                test_sampler  = DistributedSampler(test_data)
+#             if args.local_rank == -1:
+#                 test_sampler   = SequentialSampler(test_data)
+#             else:
+#                 test_sampler  = DistributedSampler(test_data)
 
-            test_dataloader  = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
-
-
-            model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
-
-            ## Setting WandBI to log gradients and model parameters
-            wandb.watch(model)
-
-            if args.fp16:
-                model.half()
-            model.to(device)
-            if args.local_rank != -1:
-                model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
-                                                                  output_device=args.local_rank)
-            elif n_gpu > 1:
-                model = torch.nn.DataParallel(model)
-
-            ##if freeze_bert:
-            for name, param in model.named_parameters():
-                if name.startswith("bert"): # classifier.weight; classifier.bias
-                    # print(name, param.type())            
-                    param.requires_grad = False
-                    param = param.cpu() # Force the unused parameters to the cpu, to free GPU space for other things
-                    # print(name, param.type())  
-
-            m = nn.Sigmoid()
-            logger.info("***** Running testing *****")
-            logger.info("  Num examples = %d", len(test_features))
-            logger.info("  Batch size = %d", args.test_batch_size)
-
-            model.eval()
-            test_loss, test_accuracy = 0, 0
-            nb_test_steps, nb_test_examples = 0, 0
-            true_labels=[]
-            pred_labels=[]
-            logits_history=[]
-
-            if "clinical_text" in args.features:
-                for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
-                    precomputed_texts = precomputed_texts.to(device)
-                    label_ids = label_ids.to(device)
-
-                    with torch.no_grad():
-                        if nonTextFeatures:
-                            nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                            tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
-                                                          feature_position_dict=featurePositionDict)
-                            # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
-                        else:
-                            tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
-                            # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
-
-                    logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-                    label_ids = label_ids.to('cpu').numpy()
-                    outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                    true_labels = true_labels + label_ids.flatten().tolist()
-                    pred_labels = pred_labels + outputs.flatten().tolist()
-                    logits_history = logits_history + logits.flatten().tolist()
-
-                    test_accuracy += np.sum(outputs == label_ids)
-                    test_loss += tmp_test_loss.mean().item()
-                    nb_test_steps += 1
-                    nb_test_examples += label_ids.size
-
-            else:
-                for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
-                    label_ids = label_ids.to(device)
-                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-
-                    with torch.no_grad():
-                        tmp_test_loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
-                        # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)                    
-
-                    logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-                    label_ids = label_ids.to('cpu').numpy()
-                    outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                    true_labels = true_labels + label_ids.flatten().tolist()
-                    pred_labels = pred_labels + outputs.flatten().tolist()
-                    logits_history = logits_history + logits.flatten().tolist()
-
-                    test_accuracy += np.sum(outputs == label_ids)
-                    test_loss += tmp_test_loss.mean().item()
-                    nb_test_steps += 1
-                    nb_test_examples += label_ids.size
+#             test_dataloader  = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
 
 
-            test_accuracy /= nb_test_examples
-            test_loss = test_loss / nb_test_steps
+#             model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
 
-            # df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
-            # string = 'test_logits_fold' + str(i) + '_' + args.readmission_mode + '_chunks.csv'
-            # df.to_csv(os.path.join(args.output_dir, string))
+#             ## Setting WandBI to log gradients and model parameters
+#             wandb.watch(model)
 
-            df_test = pd.read_csv(csv_filepath)
-            fpr, tpr, df_out = vote_score(df_test, logits_history, args)
+#             if args.fp16:
+#                 model.half()
+#             model.to(device)
+#             if args.local_rank != -1:
+#                 model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+#                                                                   output_device=args.local_rank)
+#             elif n_gpu > 1:
+#                 model = torch.nn.DataParallel(model)
 
-            # string = 'test_logits_fold' + str(test_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
-            # df_out.to_csv(os.path.join(args.output_dir,string))
+#             ##if freeze_bert:
+#             for name, param in model.named_parameters():
+#                 if name.startswith("bert"): # classifier.weight; classifier.bias
+#                     # print(name, param.type())            
+#                     param.requires_grad = False
+#                     param = param.cpu() # Force the unused parameters to the cpu, to free GPU space for other things
+#                     # print(name, param.type())  
 
-            test_precision, test_recall, test_f1score, test_support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
-            test_rp80 = vote_pr_curve(df_test, logits_history, args)
+#             m = nn.Sigmoid()
+#             logger.info("***** Running testing *****")
+#             logger.info("  Num examples = %d", len(test_features))
+#             logger.info("  Batch size = %d", args.test_batch_size)
 
-            wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Recall at Precision 80 (RP80)": test_rp80})          
+#             model.eval()
+#             test_loss, test_accuracy = 0, 0
+#             nb_test_steps, nb_test_examples = 0, 0
+#             true_labels=[]
+#             pred_labels=[]
+#             logits_history=[]
 
-            result = {'Test loss':            test_loss,
-                      'Test accuracy':        test_accuracy,
-                      'Test RP80':            test_rp80,
-                      'Test Precision':       test_precision[1],
-                      'Test Recall':          test_recall[1],
-                      'Test F1-Score':        test_f1score[1],
-                     }
+#             if "clinical_text" in args.features:
+#                 for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+#                     precomputed_texts = precomputed_texts.to(device)
+#                     label_ids = label_ids.to(device)
 
-            logger.info("***** Results %d *****\n")
-            for key in sorted(result.keys()):
-                logger.info("  %s = %s", key, str(result[key]))
+#                     with torch.no_grad():
+#                         if nonTextFeatures:
+#                             nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+#                             tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+#                                                           feature_position_dict=featurePositionDict)
+#                             # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+#                         else:
+#                             tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+#                             # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
+
+#                     logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+#                     label_ids = label_ids.to('cpu').numpy()
+#                     outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+#                     true_labels = true_labels + label_ids.flatten().tolist()
+#                     pred_labels = pred_labels + outputs.flatten().tolist()
+#                     logits_history = logits_history + logits.flatten().tolist()
+
+#                     test_accuracy += np.sum(outputs == label_ids)
+#                     test_loss += tmp_test_loss.mean().item()
+#                     nb_test_steps += 1
+#                     nb_test_examples += label_ids.size
+
+#             else:
+#                 for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+#                     label_ids = label_ids.to(device)
+#                     nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+
+#                     with torch.no_grad():
+#                         tmp_test_loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
+#                         # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)                    
+
+#                     logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+#                     label_ids = label_ids.to('cpu').numpy()
+#                     outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+#                     true_labels = true_labels + label_ids.flatten().tolist()
+#                     pred_labels = pred_labels + outputs.flatten().tolist()
+#                     logits_history = logits_history + logits.flatten().tolist()
+
+#                     test_accuracy += np.sum(outputs == label_ids)
+#                     test_loss += tmp_test_loss.mean().item()
+#                     nb_test_steps += 1
+#                     nb_test_examples += label_ids.size
+
+
+#             test_accuracy /= nb_test_examples
+#             test_loss = test_loss / nb_test_steps
+
+#             # df = pd.DataFrame({'logits':logits_history, 'pred_label': pred_labels, 'label':true_labels})
+#             # string = 'test_logits_fold' + str(i) + '_' + args.readmission_mode + '_chunks.csv'
+#             # df.to_csv(os.path.join(args.output_dir, string))
+
+#             df_test = pd.read_csv(csv_filepath)
+#             fpr, tpr, df_out = vote_score(df_test, logits_history, args)
+
+#             # string = 'test_logits_fold' + str(test_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
+#             # df_out.to_csv(os.path.join(args.output_dir,string))
+
+#             test_precision, test_recall, test_f1score, test_support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
+#             test_rp80 = vote_pr_curve(df_test, logits_history, args)
+
+#             wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Recall at Precision 80 (RP80)": test_rp80})          
+
+#             result = {'Test loss':            test_loss,
+#                       'Test accuracy':        test_accuracy,
+#                       'Test RP80':            test_rp80,
+#                       'Test Precision':       test_precision[1],
+#                       'Test Recall':          test_recall[1],
+#                       'Test F1-Score':        test_f1score[1],
+#                      }
+
+#             logger.info("***** Results %d *****\n")
+#             for key in sorted(result.keys()):
+#                 logger.info("  %s = %s", key, str(result[key]))
 
 
 
