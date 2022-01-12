@@ -10,6 +10,7 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
@@ -24,7 +25,6 @@ class InputExample(object):
             Only must be specified for sequence pair tasks.
         """
         self.guid = guid
-        self.label = features["LABEL_NEXT_SMALL_DIAG_ICD9"]
         self.hadm_id = features["hadm_id"]
         self.clinical_text = None
         self.admittime = None
@@ -36,6 +36,9 @@ class InputExample(object):
         self.small_proc_icd9 = None
         self.proc_ccs = None
         self.cui = None
+        if features["LABEL_NEXT_SMALL_DIAG_ICD9"] is not None: self.label = features["LABEL_NEXT_SMALL_DIAG_ICD9"]
+        elif features["LABEL_NEXT_DIAG_CCS"] is not None:      self.label = features["LABEL_NEXT_DIAG_CCS"]
+        
         if features["clinical_text"] is not None:   self.clinical_text = features["clinical_text"]
         if features["admittime"] is not None:       self.admittime = features["admittime"]
         if features["daystonextadmit"] is not None: self.daystonextadmit = features["daystonextadmit"]
@@ -67,7 +70,7 @@ class InputFeatures(object):
         if "proc_ccs" in features.keys():        self.proc_ccs = features["proc_ccs"]
         if "cui" in features.keys():             self.cui = features["cui"]
 
-
+#HERE
 class DataProcessor(object):
     """Base class for data converters for sequence classification data sets."""
 
@@ -95,7 +98,7 @@ class DataProcessor(object):
         file=pd.read_csv(input_file)
         lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
                   file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.TEXT,\
-                  file.LABEL_NEXT_SMALL_DIAG_ICD9)
+                  file.LABEL_NEXT_SMALL_DIAG_ICD9, file.LABEL_NEXT_DIAG_CCS)
         return lines
     
     def _read_precomputed_npy(cls, input_file):
@@ -105,18 +108,19 @@ class DataProcessor(object):
     
 
 class processorNoText(DataProcessor):
-    def get_examples(self, data_dir, features=None, fold=0):
+    def get_examples(self, data_dir, label, features=None, fold=0):
         datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_codeprediction_notext.csv"))
-        return self._create_examples(datasetFile, "fold"+str(fold), features)
+        return self._create_examples(datasetFile, "fold"+str(fold), label, features)
     
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
         lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
-                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.LABEL_NEXT_SMALL_DIAG_ICD9)
+                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.LABEL_NEXT_SMALL_DIAG_ICD9,
+                  file.LABEL_NEXT_DIAG_CCS)
         return lines
     
-    def _create_examples(self, linesAllFeatures, set_type, Features=None):
+    def _create_examples(self, linesAllFeatures, set_type, labelToPredict, Features=None):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
         examples = []
@@ -179,26 +183,34 @@ class processorNoText(DataProcessor):
             else: features["cui"] = None
 
             features["hadm_id"] = line[1]
-            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = [x for x in processString(line[14],charsToRemove = "[] ").split(',')]
-            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = np.asarray(features["LABEL_NEXT_SMALL_DIAG_ICD9"], dtype=np.int)
+            
+            if labelToPredict == "LABEL_NEXT_SMALL_DIAG_ICD9":
+                features["LABEL_NEXT_SMALL_DIAG_ICD9"] = [x for x in processString(line[14],charsToRemove = "[] ").split(',')]
+                features["LABEL_NEXT_SMALL_DIAG_ICD9"] = np.asarray(features["LABEL_NEXT_SMALL_DIAG_ICD9"], dtype=np.int)
+                features["LABEL_NEXT_DIAG_CCS"] = None
+                
+            elif labelToPredict == "LABEL_NEXT_DIAG_CCS":
+                features["LABEL_NEXT_DIAG_CCS"] = [x for x in processString(line[15],charsToRemove = "[] ").split(',')]
+                features["LABEL_NEXT_DIAG_CCS"] = np.asarray(features["LABEL_NEXT_DIAG_CCS"], dtype=np.int)
+                features["LABEL_NEXT_SMALL_DIAG_ICD9"] = None
 
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))
         return examples
     
     
-    
+
 class processorText(DataProcessor):
-    def get_examples(self, data_dir, features=None, fold=0, numpy_dir=None):
+    def get_examples(self, data_dir, label, features=None, fold=0, numpy_dir=None):
         if numpy_dir is not None:
             datasetFile = self._read_csv(data_dir)
             precomputedEmbeddingsFile = self._read_precomputed_npy(numpy_dir)
         else:
             datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_codeprediction_text.csv"))
             precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_codeprediction_text_precomputed.npy"))
-        return self._create_examples(datasetFile, precomputedEmbeddingsFile, "fold"+str(fold), features)
+        return self._create_examples(datasetFile, precomputedEmbeddingsFile, "fold"+str(fold), label, features)
     
-    def _create_examples(self, linesAllFeatures, linesPrecomputed, set_type, Features=None):
+    def _create_examples(self, linesAllFeatures, linesPrecomputed, set_type, labelToPredict, Features=None):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
         examples = []
@@ -263,8 +275,15 @@ class processorText(DataProcessor):
 
             features["hadm_id"] = line[1]
             
-            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = [x for x in processString(line[15],charsToRemove = "[] ").split(',')]
-            features["LABEL_NEXT_SMALL_DIAG_ICD9"] = np.asarray(features["LABEL_NEXT_SMALL_DIAG_ICD9"], dtype=np.int)
+            if labelToPredict == "LABEL_NEXT_SMALL_DIAG_ICD9":
+                features["LABEL_NEXT_SMALL_DIAG_ICD9"] = [x for x in processString(line[15],charsToRemove = "[] ").split(',')]
+                features["LABEL_NEXT_SMALL_DIAG_ICD9"] = np.asarray(features["LABEL_NEXT_SMALL_DIAG_ICD9"], dtype=np.int)
+                features["LABEL_NEXT_DIAG_CCS"] = None
+                
+            elif labelToPredict == "LABEL_NEXT_DIAG_CCS":
+                features["LABEL_NEXT_DIAG_CCS"] = [x for x in processString(line[16],charsToRemove = "[] ").split(',')]
+                features["LABEL_NEXT_DIAG_CCS"] = np.asarray(features["LABEL_NEXT_DIAG_CCS"], dtype=np.int)
+                features["LABEL_NEXT_SMALL_DIAG_ICD9"] = None
 
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))

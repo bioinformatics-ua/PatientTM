@@ -29,8 +29,8 @@ def help(show=False):
                         default=None,
                         required=False,
                         type=str,
-                        choices=["small_diag_icd9"],
-                        help="The type of code to predict in code predicting tasks. Please select one of the following predictive tasks: [small_diag_icd9].")    
+                        choices=["small_diag_icd9", "diag_ccs"],
+                        help="The type of code to predict in code predicting tasks. Please select one of the following predictive tasks: [small_diag_icd9, diag_ccs].")    
     
     parser.add_argument("--output_dir",
                         default=None,

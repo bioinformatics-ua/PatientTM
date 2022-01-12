@@ -1174,7 +1174,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
         logits = self.final_classifier(output)
         
         if labels is not None:
-            loss_criterion = BCEWithLogitsLoss()  
+            loss_criterion = BCEWithLogitsLoss() #BCEWithLogitsLoss has the sigmoid activation integrated, does not require sigmoid(logits) as input
             loss = loss_criterion(logits, labels.float())
             return loss, logits
         else:

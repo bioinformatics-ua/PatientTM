@@ -125,6 +125,8 @@ def runDiagnosisPrediction(args):
 
         if args.task_name:
             wandb.config.task_name = args.task_name
+        if args.codes_to_predict:
+            wandb.config.codes_to_predict = args.codes_to_predict
         if args.readmission_mode:
             wandb.config.readmission_mode = args.readmission_mode
         if args.learning_rate:
@@ -147,6 +149,13 @@ def runDiagnosisPrediction(args):
             with open("../data/extended_folds/preprocessing/smallICDdiagMapping.json", "r") as file:    
                 icd9DiagCodeToIdx = json.load(file)
             numLabels = len(icd9DiagCodeToIdx)
+            LabelToPredict = "LABEL_NEXT_SMALL_DIAG_ICD9"
+            
+        elif args.codes_to_predict == "diag_ccs":
+            with open("../data/extended_folds/preprocessing/CCSdiagMapping.json", "r") as file:    
+                ccsDiagCodeToIdx = json.load(file)
+            numLabels = len(ccsDiagCodeToIdx)
+            LabelToPredict = "LABEL_NEXT_DIAG_CCS"
                                 
         maxLenDict={"small_icd9_ccs_maxlen": args.small_icd9_ccs_maxlength, "cui_maxlen": args.cui_maxlength, }
 
@@ -201,15 +210,15 @@ def runDiagnosisPrediction(args):
             folds = [i for i in range(cvFolds)]
             folds_dataset = []
             for i in folds:
-                dataset = processor.get_examples(args.data_dir, features=args.features, fold=i)
+                dataset = processor.get_examples(args.data_dir, LabelToPredict, features=args.features, fold=i)
                 folds_dataset.append(convert_examples_to_features(dataset, args.features, maxLenDict))
             print("All dataset folds loaded.\n")
 
-            history_training_loss, history_validation_loss, history_test_loss = [], [], []
-            history_val_microprecision, history_val_microrecall, history_val_microf1, history_val_microAUC, history_val_rp80 = [], [], [], [], []
-            history_val_microAvgPrecisionScore, history_val_recallat10, history_val_recallat20, history_val_recallat30 = [], [], [], []    
-            history_test_microprecision, history_test_microrecall, history_test_microf1, history_test_microAUC, history_test_rp80 = [], [], [], [], []
-            history_test_microAvgPrecisionScore, history_test_recallat10, history_test_recallat20, history_test_recallat30 = [], [], [], []
+            history_training_loss, history_val_loss, history_test_loss = [], [], []
+            history_val_microprecision, history_val_microrecall, history_val_microf1, history_val_microAUC, history_val_micro_rp80 = [], [], [], [], []
+            history_val_microAvgPrecision, history_val_recallat10, history_val_recallat20, history_val_recallat30, history_val_macro_rp80 = [], [], [], [], []    
+            history_test_microprecision, history_test_microrecall, history_test_microf1, history_test_microAUC, history_test_micro_rp80 = [], [], [], [], []
+            history_test_microAvgPrecision, history_test_recallat10, history_test_recallat20, history_test_recallat30, history_test_macro_rp80 = [], [], [], [], []
 
     # Beginning the folding process here
             # repeatedkFold = RepeatedKFold(n_splits=2, n_repeats=2, random_state=2652124)
@@ -521,22 +530,23 @@ def runDiagnosisPrediction(args):
                         df_val = df_val.iloc[val_idx, :]
                     df_val['pred_label_scores'] = logits_history
                     
-                    val_metrics = compute_metrics(df_val, numLabels, args, label="LABEL_NEXT_SMALL_DIAG_ICD9", threshold=0.5)
+                    val_metrics = compute_metrics(df_val, numLabels, args, label=LabelToPredict, threshold=0.5)
 
-                    wandb.log({"Val Loss":                   val_loss,
-                               "Val RP80":                   val_metrics["recall@p80"],
-                               "Val MicroPrecision":         val_metrics["micro_precision"],
-                               "Val MacroPrecision":         val_metrics["macro_precision"],
-                               "Val MicroRecall":            val_metrics["micro_recall"],
-                               "Val MacroRecall":            val_metrics["macro_recall"],
-                               "Val MicroF1":                val_metrics["micro_f1"],
-                               "Val MacroF1":                val_metrics["macro_f1"],
-                               "Val MicroAUC":               val_metrics["micro_auc"],
-                               "Val MacroAUC":               val_metrics["macro_auc"],
-                               "Val MicroAvgPrecisionScore": val_metrics["micro_avg_precision_score"],
-                               "Val Recall@10":              val_metrics["recall@10"],
-                               "Val Recall@20":              val_metrics["recall@20"],
-                               "Val Recall@30":              val_metrics["recall@30"]})
+                    wandb.log({"Val Loss":              val_loss,
+                               "Val MicroRP80":         val_metrics["micro_recall@p80"],
+                               "Val MacroRP80":         val_metrics["macro_recall@p80"],
+                               "Val MicroPrecision":    val_metrics["micro_precision"],
+                               "Val MacroPrecision":    val_metrics["macro_precision"],
+                               "Val MicroRecall":       val_metrics["micro_recall"],
+                               "Val MacroRecall":       val_metrics["macro_recall"],
+                               "Val MicroF1":           val_metrics["micro_f1"],
+                               "Val MacroF1":           val_metrics["macro_f1"],
+                               "Val MicroAUC":          val_metrics["micro_auc"],
+                               "Val MacroAUC":          val_metrics["macro_auc"],
+                               "Val MicroAvgPrecision": val_metrics["micro_avg_precision"],
+                               "Val Recall@10":         val_metrics["recall@10"],
+                               "Val Recall@20":         val_metrics["recall@20"],
+                               "Val Recall@30":         val_metrics["recall@30"]})
 
 
                     ## "Early stopping" mechanism where validation loss is used to save model checkpoints
@@ -626,66 +636,71 @@ def runDiagnosisPrediction(args):
                     df_test = df_test.iloc[test_idx, :]
                 df_test['pred_label_scores'] = logits_history
                 
-                test_metrics = compute_metrics(df_test, numLabels, args, label="LABEL_NEXT_SMALL_DIAG_ICD9", threshold=0.5)
+                test_metrics = compute_metrics(df_test, numLabels, args, label=LabelToPredict, threshold=0.5)
 
-                wandb.log({"Test Loss":                   test_loss,
-                           "Test RP80":                   test_metrics["recall@p80"],
-                           "Test MicroPrecision":         test_metrics["micro_precision"],
-                           "Test MacroPrecision":         test_metrics["macro_precision"],
-                           "Test MicroRecall":            test_metrics["micro_recall"],
-                           "Test MacroRecall":            test_metrics["macro_recall"],
-                           "Test MicroF1":                test_metrics["micro_f1"],
-                           "Test MacroF1":                test_metrics["macro_f1"],
-                           "Test MicroAUC":               test_metrics["micro_auc"],
-                           "Test MacroAUC":               test_metrics["macro_auc"],
-                           "Test MicroAvgPrecisionScore": test_metrics["micro_avg_precision_score"],
-                           "Test Recall@10":              test_metrics["recall@10"],
-                           "Test Recall@20":              test_metrics["recall@20"],
-                           "Test Recall@30":              test_metrics["recall@30"]})
+                wandb.log({"Test Loss":              test_loss,
+                           "Test MicroRP80":         test_metrics["micro_recall@p80"],
+                           "Test MacroRP80":         test_metrics["macro_recall@p80"],
+                           "Test MicroPrecision":    test_metrics["micro_precision"],
+                           "Test MacroPrecision":    test_metrics["macro_precision"],
+                           "Test MicroRecall":       test_metrics["micro_recall"],
+                           "Test MacroRecall":       test_metrics["macro_recall"],
+                           "Test MicroF1":           test_metrics["micro_f1"],
+                           "Test MacroF1":           test_metrics["macro_f1"],
+                           "Test MicroAUC":          test_metrics["micro_auc"],
+                           "Test MacroAUC":          test_metrics["macro_auc"],
+                           "Test MicroAvgPrecision": test_metrics["micro_avg_precision"],
+                           "Test Recall@10":         test_metrics["recall@10"],
+                           "Test Recall@20":         test_metrics["recall@20"],
+                           "Test Recall@30":         test_metrics["recall@30"]})
 
 
-                result = {'Training loss':               train_loss/number_training_steps,
-                          'Val Loss':                    val_loss,
-                          "Val RP80":                    val_metrics["recall@p80"],
-                          "Val MicroPrecision":          val_metrics["micro_precision"],
-                          "Val MicroRecall":             val_metrics["micro_recall"],
-                          "Val MicroF1":                 val_metrics["micro_f1"],
-                          "Val MicroAUC":                val_metrics["micro_auc"],
-                          "Val MicroAvgPrecisionScore":  val_metrics["micro_avg_precision_score"],
-                          "Val Recall@10":               val_metrics["recall@10"],
-                          "Val Recall@20":               val_metrics["recall@20"],
-                          "Val Recall@30":               val_metrics["recall@30"],
-                          'Test Loss':                   test_loss,
-                          "Test RP80":                   test_metrics["recall@p80"],
-                          "Test MicroPrecision":         test_metrics["micro_precision"],
-                          "Test MicroRecall":            test_metrics["micro_recall"],
-                          "Test MicroF1":                test_metrics["micro_f1"],
-                          "Test MicroAUC":               test_metrics["micro_auc"],
-                          "Test MicroAvgPrecisionScore": test_metrics["micro_avg_precision_score"],
-                          "Test Recall@10":              test_metrics["recall@10"],
-                          "Test Recall@20":              test_metrics["recall@20"],
-                          "Test Recall@30":              test_metrics["recall@30"],
+                result = {'Training loss':           train_loss/number_training_steps,
+                          'Val Loss':                val_loss,
+                          "Val MicroRP80":           val_metrics["micro_recall@p80"],
+                          "Val MacroRP80":           val_metrics["macro_recall@p80"],
+                          "Val MicroPrecision":      val_metrics["micro_precision"],
+                          "Val MicroRecall":         val_metrics["micro_recall"],
+                          "Val MicroF1":             val_metrics["micro_f1"],
+                          "Val MicroAUC":            val_metrics["micro_auc"],
+                          "Val MicroAvgPrecision":   val_metrics["micro_avg_precision"],
+                          "Val Recall@10":           val_metrics["recall@10"],
+                          "Val Recall@20":           val_metrics["recall@20"],
+                          "Val Recall@30":           val_metrics["recall@30"],
+                          'Test Loss':               test_loss,
+                          "Test MicroRP80":          test_metrics["micro_recall@p80"],
+                          "Test MacroRP80":          test_metrics["macro_recall@p80"],
+                          "Test MicroPrecision":     test_metrics["micro_precision"],
+                          "Test MicroRecall":        test_metrics["micro_recall"],
+                          "Test MicroF1":            test_metrics["micro_f1"],
+                          "Test MicroAUC":           test_metrics["micro_auc"],
+                          "Test MicroAvgPrecision":  test_metrics["micro_avg_precision"],
+                          "Test Recall@10":          test_metrics["recall@10"],
+                          "Test Recall@20":          test_metrics["recall@20"],
+                          "Test Recall@30":          test_metrics["recall@30"],
                          }
                           
                 history_training_loss.append(train_loss/number_training_steps)
-                history_validation_loss.append(val_loss)
+                history_val_loss.append(val_loss)
                 history_test_loss.append(test_loss)
-                history_val_rp80.append(val_metrics["recall@p80"])
+                history_val_micro_rp80.append(val_metrics["micro_recall@p80"])
+                history_val_macro_rp80.append(val_metrics["macro_recall@p80"])
                 history_val_microprecision.append(val_metrics["micro_precision"])
                 history_val_microrecall.append(val_metrics["micro_recall"])
                 history_val_microf1.append(val_metrics["micro_f1"])
                 history_val_microAUC.append(val_metrics["micro_auc"])         
-                history_val_microAvgPrecisionScore.append(val_metrics["micro_avg_precision_score"])
+                history_val_microAvgPrecision.append(val_metrics["micro_avg_precision"])
                 history_val_recallat10.append(val_metrics["recall@10"])      
                 history_val_recallat20.append(val_metrics["recall@20"])     
                 history_val_recallat30.append(val_metrics["recall@30"])   
                 
-                history_test_rp80.append(test_metrics["recall@p80"])
+                history_test_micro_rp80.append(test_metrics["micro_recall@p80"])
+                history_test_macro_rp80.append(test_metrics["macro_recall@p80"])
                 history_test_microprecision.append(test_metrics["micro_precision"])
                 history_test_microrecall.append(test_metrics["micro_recall"])
                 history_test_microf1.append(test_metrics["micro_f1"])
                 history_test_microAUC.append(test_metrics["micro_auc"])         
-                history_test_microAvgPrecisionScore.append(test_metrics["micro_avg_precision_score"])
+                history_test_microAvgPrecision.append(test_metrics["micro_avg_precision"])
                 history_test_recallat10.append(test_metrics["recall@10"])      
                 history_test_recallat20.append(test_metrics["recall@20"])     
                 history_test_recallat30.append(test_metrics["recall@30"])  
@@ -706,18 +721,20 @@ def runDiagnosisPrediction(args):
                             
             mean_result = {'Training loss':       sum(history_training_loss)/len(history_training_loss),
                            "Validation loss":           sum(history_val_loss)/len(history_val_loss),
-                           "Validation RP80":           sum(history_val_rp80)/len(history_val_rp80),
+                           "Validation Micro RP80":     sum(history_val_micro_rp80)/len(history_val_micro_rp80),
+                           "Validation Macro RP80":     sum(history_val_macro_rp80)/len(history_val_macro_rp80),
                            "Validation Micro F1":       sum(history_val_microf1)/len(history_val_microf1),                   
                            "Validation Micro AUC":      sum(history_val_microAUC)/len(history_val_microAUC),
-                           "Validation Micro Avg Precision Score":       sum(history_val_microAvgPrecisionScore)/len(history_val_microAvgPrecisionScore),                
+                           "Validation Micro Avg Precision":       sum(history_val_microAvgPrecision)/len(history_val_microAvgPrecision),                
                            "Validation Recall@10":      sum(history_val_recallat10)/len(history_val_recallat10),
                            "Validation Recall@20":      sum(history_val_recallat20)/len(history_val_recallat20),
-                           "Validation Recall@30":      sum(history_val_recallat30)/len(history_val_recallat30)
+                           "Validation Recall@30":      sum(history_val_recallat30)/len(history_val_recallat30),
                            "Test loss":                 sum(history_test_loss)/len(history_test_loss),
-                           "Test RP80":                 sum(history_test_rp80)/len(history_test_rp80),
+                           "Test Micro RP80":           sum(history_test_micro_rp80)/len(history_test_micro_rp80),
+                           "Test Macro RP80":           sum(history_test_macro_rp80)/len(history_test_macro_rp80),
                            "Test Micro F1":             sum(history_test_microf1)/len(history_test_microf1),                   
                            "Test Micro AUC":            sum(history_test_microAUC)/len(history_test_microAUC),
-                           "Test Micro Avg Precision Score":       sum(history_test_microAvgPrecisionScore)/len(history_test_microAvgPrecisionScore),                
+                           "Test Micro Avg Precision":       sum(history_test_microAvgPrecision)/len(history_test_microAvgPrecision),                
                            "Test Recall@10":            sum(history_test_recallat10)/len(history_test_recallat10),
                            "Test Recall@20":            sum(history_test_recallat20)/len(history_test_recallat20),
                            "Test Recall@30":            sum(history_test_recallat30)/len(history_test_recallat30)
@@ -725,10 +742,11 @@ def runDiagnosisPrediction(args):
                           
             
             wandb.log({"KFold Avg Test loss":      sum(history_test_loss)/len(history_test_loss),
-                       "KFold Avg RP80":           sum(history_test_rp80)/len(history_test_rp80),
+                       "KFold Avg Micro RP80":     sum(history_test_micro_rp80)/len(history_test_micro_rp80),
+                       "KFold Avg Macro RP80":     sum(history_test_macro_rp80)/len(history_test_macro_rp80),
                        "KFold Avg Micro F1":       sum(history_test_microf1)/len(history_test_microf1),                   
                        "KFold Avg Micro AUC":      sum(history_test_microAUC)/len(history_test_microAUC),
-                       "KFold Avg Micro Avg Precision Score":       sum(history_test_microAvgPrecisionScore)/len(history_test_microAvgPrecisionScore),                
+                       "KFold Avg Micro Avg Precision":       sum(history_test_microAvgPrecision)/len(history_test_microAvgPrecision),                
                        "KFold Avg Recall@10":      sum(history_test_recallat10)/len(history_test_recallat10),
                        "KFold Avg Recall@20":      sum(history_test_recallat20)/len(history_test_recallat20),
                        "KFold Avg Recall@30":      sum(history_test_recallat30)/len(history_test_recallat30)})  
