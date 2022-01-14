@@ -4,6 +4,7 @@ import json
 import logging
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -96,6 +97,9 @@ class DataProcessor(object):
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
+        file.DURATION = file.DURATION.abs()
+        index = file[file.DAYS_PREV_ADMIT < 0].index
+        file.loc[index, "DAYS_PREV_ADMIT"] = 5000
         lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
                   file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.TEXT,\
                   file.LABEL_NEXT_SMALL_DIAG_ICD9, file.LABEL_NEXT_DIAG_CCS)
@@ -115,6 +119,9 @@ class processorNoText(DataProcessor):
     def _read_csv(cls, input_file):
         """Reads a comma separated value file."""
         file=pd.read_csv(input_file)
+        file.DURATION = file.DURATION.abs()
+        index = file[file.DAYS_PREV_ADMIT < 0].index
+        file.loc[index, "DAYS_PREV_ADMIT"] = 5000
         lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
                   file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.LABEL_NEXT_SMALL_DIAG_ICD9,
                   file.LABEL_NEXT_DIAG_CCS)
@@ -124,6 +131,12 @@ class processorNoText(DataProcessor):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
         examples = []
+        
+        min_duration, max_duration, min_daysprev, max_daysprev = 0, 300, 0, 5000
+        duration_scaler, daysprev_scaler = MinMaxScaler(), MinMaxScaler()
+        duration_scaler.fit(np.array([min_duration, max_duration]).reshape(-1, 1))
+        daysprev_scaler.fit(np.array([min_daysprev, max_daysprev]).reshape(-1, 1))
+
         for i, line in enumerate(linesAllFeatures):
             guid = "%s-%s" % (set_type, i)
             features = dict()
@@ -142,14 +155,11 @@ class processorNoText(DataProcessor):
             if "daystoprevadmit" in Features:
                 features["daystoprevadmit"] = line[4]
                 if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [0]
-                elif  features["daystoprevadmit"] < 0: features["daystoprevadmit"] = [float(32000)]
-                else: features["daystoprevadmit"] = [float(line[4])]
+                else: features["daystoprevadmit"] = [float(daysprev_scaler.transform(np.array([float(line[4])]).reshape(1, -1)))]
             else: features["daystoprevadmit"] = None
 
             if "duration"  in Features:
-                features["duration"] = float(line[5])
-                if features["duration"] < 0: features["duration"] = [abs(features["duration"])]
-                else: features["duration"] = [float(line[5])]
+                features["duration"] = [float(duration_scaler.transform(np.array([float(line[5])]).reshape(1, -1)))]
             else: features["duration"] = None
 
             if "diag_ccs"  in Features:
@@ -214,6 +224,12 @@ class processorText(DataProcessor):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
         examples = []
+        
+        min_duration, max_duration, min_daysprev, max_daysprev = 0, 300, 0, 5000
+        duration_scaler, daysprev_scaler = MinMaxScaler(), MinMaxScaler()
+        duration_scaler.fit(np.array([min_duration, max_duration]).reshape(-1, 1))
+        daysprev_scaler.fit(np.array([min_daysprev, max_daysprev]).reshape(-1, 1))
+            
         for i, (line, linePrecomputed) in enumerate(zip(linesAllFeatures, linesPrecomputed)):
             guid = "%s-%s" % (set_type, i)
             features = dict()
@@ -233,14 +249,11 @@ class processorText(DataProcessor):
             if "daystoprevadmit" in Features:
                 features["daystoprevadmit"] = line[4]
                 if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [0]
-                elif  features["daystoprevadmit"] < 0: features["daystoprevadmit"] = [float(32000)]
-                else: features["daystoprevadmit"] = [float(line[4])]
+                else: features["daystoprevadmit"] = [float(daysprev_scaler.transform(np.array([float(line[4])]).reshape(1, -1)))]
             else: features["daystoprevadmit"] = None
 
             if "duration"  in Features:
-                features["duration"] = float(line[5])
-                if features["duration"] < 0: features["duration"] = [abs(features["duration"])]
-                else: features["duration"] = [float(line[5])]
+                features["duration"] = [float(duration_scaler.transform(np.array([float(line[5])]).reshape(1, -1)))]
             else: features["duration"] = None
 
             if "diag_ccs"  in Features:
