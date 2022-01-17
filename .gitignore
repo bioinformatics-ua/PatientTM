@@ -16,6 +16,7 @@ data/extended_folds/early_subjectsplit
 data/extended_folds/discharge
 data/extended_folds/discharge_finetuned
 data/extended_folds/discharge_subjectsplit
+data/extended_folds/discharge_subjectsplit_trajectory/
 src/wandb/
 results/result_discharge/
 results/result_early/
