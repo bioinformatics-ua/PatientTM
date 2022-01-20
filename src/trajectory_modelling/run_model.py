@@ -54,7 +54,7 @@ from ranger21 import Ranger21 as RangerOptimizer
 #important
 
 from trajectory_modelling.data_processor import readmissionProcessor, diagnosisProcessor
-from trajectory_modelling.modeling_trajectory import GRU
+from trajectory_modelling.modeling_trajectory import GRU, LSTM
 from trajectory_modelling.evaluation import compute_metrics_readmission, compute_metrics_diagnosis
 
 def get_indices_perclass_and_sample(label_list):
@@ -107,6 +107,18 @@ def runTrajectoryModelling(args):
             wandb.config.train_batch_size = args.train_batch_size
         if args.early_stop:
             wandb.config.early_stop = args.early_stop
+            
+        if args.recurrent_hidden_size:
+            wandb.config.recurrent_hidden_size = args.recurrent_hidden_size
+        if args.recurrent_num_layers:
+            wandb.config.recurrent_num_layers = args.recurrent_num_layers
+        if args.recurrent_network:
+            wandb.config.recurrent_network = args.recurrent_network
+        if args.bidirectional:
+            wandb.config.bidirectional = args.bidirectional  
+        if args.visit_sliding_window:
+            wandb.config.visit_sliding_window = args.visit_sliding_window      
+            
         
         processors = {"diagnosis": diagnosisProcessor,
                       "readmission": readmissionProcessor}
@@ -114,26 +126,28 @@ def runTrajectoryModelling(args):
         if args.trajectory_subtask_name.lower() == "readmission":
             numLabels = 1
             LabelToPredict = "Label"
-            file_ending = "_trajectory_readmission_notext.csv"
+            file_ending = "_sliding" + str(args.visit_sliding_window) + "trajectory_readmission_notext.csv"
             
         elif args.codes_to_predict == "small_diag_icd9":
             with open("../data/extended_folds/preprocessing/smallICDdiagMapping.json", "r") as file:    
                 icd9DiagCodeToIdx = json.load(file)
             numLabels = len(icd9DiagCodeToIdx)
             LabelToPredict = "LABEL_NEXT_SMALL_DIAG_ICD9"
-            file_ending = "_trajectory_diagnosis_notext.csv"
+            file_ending = "_sliding" + str(args.visit_sliding_window) + "trajectory_diagnosis_notext.csv"
             
         elif args.codes_to_predict == "diag_ccs":
             with open("../data/extended_folds/preprocessing/CCSdiagMapping.json", "r") as file:    
                 ccsDiagCodeToIdx = json.load(file)
             numLabels = len(ccsDiagCodeToIdx)
             LabelToPredict = "LABEL_NEXT_DIAG_CCS"
-            file_ending = "_trajectory_diagnosis_notext.csv"
+            file_ending = "_sliding" + str(args.visit_sliding_window) + "trajectory_diagnosis_notext.csv"
         
         if args.bidirectional:
             bidirectionalMultiplier = 2
         else:
             bidirectionalMultiplier = 1
+            
+        args.recurrent_network = args.recurrent_network.lower()
                                 
         maxLenDict={"small_icd9_ccs_maxlen": args.small_icd9_ccs_maxlength, "cui_maxlen": args.cui_maxlength, }
 
@@ -183,12 +197,13 @@ def runTrajectoryModelling(args):
             folds_examples, folds_lengths, folds_labels = [], [], []
             for i in folds:
                 if subtask_name == "readmission":
-                    examples, lengths, labels, featureDimension = processor.get_examples(args.data_dir, fold=i)
+                    examples, lengths, labels, featureDimension = processor.get_examples(args.data_dir, fold=i, visit_sliding_window=args.visit_sliding_window)
                     folds_examples.append(examples)
                     folds_lengths.append(lengths)
                     folds_labels.append(labels)
                 elif subtask_name == "diagnosis":
-                    examples, lengths, labels, featureDimension = processor.get_examples(args.data_dir, LabelToPredict, fold=i)
+                    examples, lengths, labels, featureDimension = processor.get_examples(args.data_dir, LabelToPredict, fold=i,
+                                                                                         visit_sliding_window=args.visit_sliding_window)
                     folds_examples.append(examples)
                     folds_lengths.append(lengths)
                     folds_labels.append(labels)
@@ -272,8 +287,12 @@ def runTrajectoryModelling(args):
                 val_dataloader   = DataLoader(val_data, sampler=val_sampler, batch_size=args.train_batch_size)
                 test_dataloader  = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
 
-             ## Initialize the model before every fold training   
-                model = GRU(args, numLabels, input_size=featureDimension, hidden_size=args.recurrent_hidden_size, num_layers=args.recurrent_num_layers)   
+             ## Initialize the model before every fold training 
+                if args.recurrent_network == "lstm":
+                    model = LSTM(args, numLabels, input_size=featureDimension, hidden_size=args.recurrent_hidden_size, num_layers=args.recurrent_num_layers)
+                elif args.recurrent_network == "gru":
+                    model = GRU(args, numLabels, input_size=featureDimension, hidden_size=args.recurrent_hidden_size, num_layers=args.recurrent_num_layers)
+
                 model.to(device)
                 ## Setting WandBI to log gradients and model parameters
                 wandb.watch(model)
@@ -301,8 +320,14 @@ def runTrajectoryModelling(args):
                         packed_sequences = pack_padded_sequence(features, lengths, batch_first=True, enforce_sorted=False)
                         optimizer.zero_grad()  
                         
-                        hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
-                        logits = model(packed_sequences, hidden_state_0)
+                        if args.recurrent_network == "lstm":
+                            cell_state_0   = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
+                            hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device) 
+                            logits = model(packed_sequences, hidden_state_0, cell_state_0)
+                        elif args.recurrent_network == "gru":
+                            hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
+                            logits = model(packed_sequences, hidden_state_0)
+                    
                         logits = logits.to(device)
                         loss = loss_criterion(logits, labels.float())
                         loss.backward()
@@ -340,8 +365,14 @@ def runTrajectoryModelling(args):
                             features = features.to(device) 
                             packed_sequences = pack_padded_sequence(features, lengths, batch_first=True, enforce_sorted=False)
    
-                            hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
-                            logits = model(packed_sequences, hidden_state_0)
+                            if args.recurrent_network == "lstm":
+                                cell_state_0   = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
+                                hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device) 
+                                logits = model(packed_sequences, hidden_state_0, cell_state_0)
+                            elif args.recurrent_network == "gru":
+                                hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
+                                logits = model(packed_sequences, hidden_state_0)
+                            
                             logits = logits.to(device)
                             loss = loss_criterion(logits, labels.float())
                     
@@ -435,8 +466,14 @@ def runTrajectoryModelling(args):
                         features = features.to(device) 
                         packed_sequences = pack_padded_sequence(features, lengths, batch_first=True, enforce_sorted=False)
 
-                        hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
-                        logits = model(packed_sequences, hidden_state_0)
+                        if args.recurrent_network == "lstm":
+                            cell_state_0   = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
+                            hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device) 
+                            logits = model(packed_sequences, hidden_state_0, cell_state_0)
+                        elif args.recurrent_network == "gru":
+                            hidden_state_0 = torch.zeros(bidirectionalMultiplier*args.recurrent_num_layers, len(features), args.recurrent_hidden_size).to(device)
+                            logits = model(packed_sequences, hidden_state_0)
+                        
                         logits = logits.to(device)
                         loss = loss_criterion(logits, labels.float())
 

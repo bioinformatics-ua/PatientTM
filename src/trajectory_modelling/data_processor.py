@@ -47,15 +47,18 @@ class DataProcessor(object):
 
     
 class readmissionProcessor(DataProcessor):
-    def get_examples(self, data_dir, fold):
-        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_trajectory_readmission_notext.csv"))
-        precomputedFeaturesDict, featureDimension = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_6visits_readmission_precomputed.npy"))
-        return self._create_examples(datasetFile, precomputedFeaturesDict, featureDimension)
+    def get_examples(self, data_dir, fold, visit_sliding_window):
+        datasetFile = self._read_csv(data_dir, fold, visit_sliding_window)
+        precomputedFeaturesDict, featureDimension = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_allvisits_readmission_precomputed.npy"))
+        return self._create_examples(datasetFile, precomputedFeaturesDict, featureDimension, visit_sliding_window)
 
-    def _read_csv(cls, input_file):
+    # def _read_csv(cls, input_file):
+    def _read_csv(cls, data_dir, fold, visit_sliding_window):
         """Reads a comma separated value file."""
+        input_file = os.path.join(data_dir, "fold" + str(fold) + "_sliding" + str(visit_sliding_window) + "trajectory_readmission_notext.csv")
         file=pd.read_csv(input_file)
-        lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.VISIT_4,file.VISIT_5,file.VISIT_6,file.Label)
+        if int(visit_sliding_window) == 3: lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.Label)
+        elif int(visit_sliding_window) == 6: lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.VISIT_4,file.VISIT_5,file.VISIT_6,file.Label)
         return lines
      
     def _create_examples(self, datasetFile, precomputedFeaturesDict, featureDimension):
@@ -66,7 +69,7 @@ class readmissionProcessor(DataProcessor):
                        
         for i, line in enumerate(datasetFile):
             subjectId, *hadmIds, label = line
-            numAdmissions = 6 - hadmIds.count(0.0)
+            numAdmissions = int(args.visit_sliding_window) - hadmIds.count(0.0)
             lengths.append(numAdmissions)
             labels.append(label)
             # print(subjectId, hadmIds, label)
@@ -78,30 +81,37 @@ class readmissionProcessor(DataProcessor):
                 featureRepresentation = precomputedFeaturesDict[hadmId][0]
                 example.append(featureRepresentation)
 # This padding part might not be correct, might need equal dimension 100?
-            while len(example) < 6:
+            while len(example) < int(args.visit_sliding_window):
                 example.append(padding)
             examples.append(example)
         return examples, lengths, labels, featureDimension    
     
 
 class diagnosisProcessor(DataProcessor):        
-    def get_examples(self, data_dir, label, fold):
-        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_trajectory_diagnosis_notext.csv"))
+    def get_examples(self, data_dir, label, fold, visit_sliding_window):
+        datasetFile = self._read_csv(data_dir, fold, visit_sliding_window)
         if label == "LABEL_NEXT_SMALL_DIAG_ICD9":
-            numpyDir = os.path.join(data_dir, "fold" + str(fold) + "_6visits_diagnosis_icd_precomputed.npy")
+            numpyDir = os.path.join(data_dir, "fold" + str(fold) + "_allvisits_diagnosis_icd_precomputed.npy")
         elif label == "LABEL_NEXT_DIAG_CCS":
-            numpyDir = os.path.join(data_dir, "fold" + str(fold) + "_6visits_diagnosis_ccs_precomputed.npy")
+            numpyDir = os.path.join(data_dir, "fold" + str(fold) + "_allvisits_diagnosis_ccs_precomputed.npy")
         precomputedFeaturesDict, featureDimension = self._read_precomputed_npy(numpyDir)
-        return self._create_examples(datasetFile, precomputedFeaturesDict, label, featureDimension)
+        return self._create_examples(datasetFile, precomputedFeaturesDict, label, featureDimension, visit_sliding_window)
     
-    def _read_csv(cls, input_file):
+    # def _read_csv(cls, input_file):
+    def _read_csv(cls, data_dir, fold, visit_sliding_window):
         """Reads a comma separated value file."""
+        input_file = os.path.join(data_dir, "fold" + str(fold) + "_sliding" + str(visit_sliding_window) + "trajectory_diagnosis_notext.csv")
         file=pd.read_csv(input_file)
-        lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.VISIT_4,file.VISIT_5,file.VISIT_6,file.LABEL_NEXT_SMALL_DIAG_ICD9, file.LABEL_NEXT_DIAG_CCS)
+        
+        if int(visit_sliding_window) == 3:
+            lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.LABEL_NEXT_SMALL_DIAG_ICD9, file.LABEL_NEXT_DIAG_CCS)
+        elif int(visit_sliding_window) == 6:
+            lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.VISIT_4,file.VISIT_5,file.VISIT_6,
+                      file.LABEL_NEXT_SMALL_DIAG_ICD9, file.LABEL_NEXT_DIAG_CCS)
         return lines
  
      
-    def _create_examples(self, datasetFile, precomputedFeaturesDict, label, featureDimension):
+    def _create_examples(self, datasetFile, precomputedFeaturesDict, label, featureDimension, visit_sliding_window):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
         examples, lengths, labels = [], [], []
@@ -109,7 +119,7 @@ class diagnosisProcessor(DataProcessor):
                        
         for i, line in enumerate(datasetFile):
             subjectId, *hadmIds, icd_label, ccs_label = line
-            numAdmissions = 6 - hadmIds.count(0.0)
+            numAdmissions = int(visit_sliding_window) - hadmIds.count(0.0)
             lengths.append(numAdmissions)
 
             if label == "LABEL_NEXT_SMALL_DIAG_ICD9":
@@ -125,7 +135,7 @@ class diagnosisProcessor(DataProcessor):
                 featureRepresentation = precomputedFeaturesDict[hadmId][0]
                 example.append(featureRepresentation)
 # This padding part might not be correct, might need equal dimension 100?
-            while len(example) < 6:
+            while len(example) < int(visit_sliding_window):
                 example.append(padding)
             examples.append(example)
         return examples, lengths, labels, featureDimension   
