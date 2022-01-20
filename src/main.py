@@ -139,6 +139,16 @@ def help(show=False):
                         default=False,
                         action='store_true',
                         help="Whether to have a bidirectional recurrent model.")
+    parser.add_argument("--recurrent_network",
+                        default=None,
+                        type=str,
+                        choices=["LSTM", "GRU"],
+                        help="The type of recurrent network to use. Please select one of the following: [GRU, LSTM].")
+    parser.add_argument("--visit_sliding_window",
+                        default=None,
+                        type=str,
+                        choices=["3", "6"],
+                        help="The number of visits to consider in the sliding window. Please select one of the following: [3, 6].")
     
     
     if show:

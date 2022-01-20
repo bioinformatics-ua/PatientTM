@@ -213,7 +213,7 @@ def main():
 
         with torch.no_grad():
             test_batch_size = 1
-            filename = "fold" + str(i) + "_6visits_readmission_notext.csv"
+            filename = "fold" + str(i) + "_allvisits_readmission_notext.csv"
             filepath = os.path.join(args.data_dir, filename)
             examples = processor.get_examples(filepath, args.features, fold=i)
             # for example in examples:
@@ -257,7 +257,7 @@ def main():
 
             array = np.asarray(rows_list, dtype=object)
             # array_filepath = "../data/extended_folds/" + args.readmission_mode + "/fold" + str(i) + "_text_precomputed.npy"
-            array_filepath = "../../data/extended_folds/discharge_subjectsplit_trajectory" + "/fold" + str(i) + "_6visits_readmission_precomputed.npy"
+            array_filepath = "../../data/extended_folds/discharge_subjectsplit_trajectory" + "/fold" + str(i) + "_allvisits_readmission_precomputed.npy"
             np.save(array_filepath, array)
 
     
