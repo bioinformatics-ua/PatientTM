@@ -14,7 +14,7 @@ class GRU(nn.Module):
         self.hidden_size = hidden_size
 
         if args.bidirectional:
-            self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True)
+            self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True, dropout=0.2)
             self.linear = nn.Linear(2*hidden_size, num_classes)
         else:
             self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
@@ -32,7 +32,7 @@ class GRU(nn.Module):
         if self.num_classes == 1:
             corrected_logits =  torch.zeros(len(gru_out_lengths.tolist()), dtype=torch.float)
             for i, (logit, length) in enumerate(zip(logits, gru_out_lengths.tolist())):
-                print(logit[length-1], logit[length-1][0])
+                # print(logit[length-1], logit[length-1][0])
                 corrected_logits[i] = logit[length-1][0]
                 
         elif self.num_classes > 1:
@@ -54,7 +54,7 @@ class LSTM(nn.Module):
         self.hidden_size = hidden_size
 
         if args.bidirectional:
-            self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True)
+            self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True, dropout=0.2)
             self.linear = nn.Linear(2*hidden_size, num_classes)
         else:
             self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
@@ -69,7 +69,7 @@ class LSTM(nn.Module):
         if self.num_classes == 1:
             corrected_logits =  torch.zeros(len(lstm_out_lengths.tolist()), dtype=torch.float)
             for i, (logit, length) in enumerate(zip(logits, lstm_out_lengths.tolist())):
-                print(logit[length-1], logit[length-1][0])
+                # print(logit[length-1], logit[length-1][0])
                 corrected_logits[i] = logit[length-1][0]
                 
         elif self.num_classes > 1:

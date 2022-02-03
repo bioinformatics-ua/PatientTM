@@ -109,7 +109,8 @@ def compute_metrics_readmission(df, args):
     # auc_pr = sklearn_auc(recall,precision)
     
     pr_thres = pd.DataFrame(data = list(zip(precision, recall, thres)), columns = ['prec','recall','thres'])
-        
+    print(pr_thres)
+    
     temp = pr_thres[pr_thres.prec > 0.799999].reset_index()
     
     rp80 = 0
@@ -164,7 +165,7 @@ def recall_at_k(yTrueLabels, yPredScores, k=10):
         #top_k = np.partition(predScore, -k)[-k:] # This retrieves the values instead of the indices
         idx = np.argpartition(predScore, -k)[-k:]
         correctPreds, realLabelCount = count_positive_labels_at_idx(trueLabel, idx)
-        recallList.append(correctPreds/realLabelCount)     
+        recallList.append(correctPreds/realLabelCount)
     return sum(recallList)/len(recallList)
         
 
@@ -200,6 +201,7 @@ def compute_metrics_diagnosis(dataFrame, numLabels, args, label, threshold=0.5):
         
 #     else:
 
+
     yPredScores = get_values_from_dataframe_to_list(dataFrame['pred_label_scores'])
     yPredLabels = convert_scores_to_labels(yPredScores, threshold)
     yTrueLabel = convert_string_to_array(dataFrame, label)
@@ -219,14 +221,34 @@ def compute_metrics_diagnosis(dataFrame, numLabels, args, label, threshold=0.5):
     # Micro Recall@precision80
     precision, recall, thresholds = sklearn_precision_recall_curve(np.asarray(yTrueLabel).ravel(), np.asarray(yPredScores).ravel())
     pr_thres = pd.DataFrame(data = list(zip(precision, recall, thresholds)), columns = ['prec','recall','thres'])
-    temp = pr_thres[pr_thres.prec > 0.799999].reset_index()
+    print(pr_thres)
+    temp50 = pr_thres[pr_thres.prec > 0.499999].reset_index()
+    temp60 = pr_thres[pr_thres.prec > 0.599999].reset_index()
+    temp70 = pr_thres[pr_thres.prec > 0.699999].reset_index()
+    temp80 = pr_thres[pr_thres.prec > 0.799999].reset_index()
+    micro_rp50 = 0
+    micro_rp60 = 0
+    micro_rp70 = 0
     micro_rp80 = 0
-    if temp.size == 0:
+    if temp50.size == 0:
         pass
-        # print('Sample too small or RP80=0')
     else:
-        micro_rp80 = temp.iloc[0].recall
-        # print('Recall at Precision of 80 is {}', micro_rp80)    
+        micro_rp50 = temp50.iloc[0].recall  
+        
+    if temp60.size == 0:
+        pass
+    else:
+        micro_rp60 = temp60.iloc[0].recall  
+        
+    if temp70.size == 0:
+        pass
+    else:
+        micro_rp70 = temp70.iloc[0].recall  
+        
+    if temp80.size == 0:
+        pass
+    else:
+        micro_rp80 = temp80.iloc[0].recall  
         
         
     yPredScores = torch.tensor(yPredScores)
@@ -280,6 +302,9 @@ def compute_metrics_diagnosis(dataFrame, numLabels, args, label, threshold=0.5):
     metrics["micro_avg_precision"] = micro_avg_precision
     metrics["macro_recall@p80"] = average_macro_rp_80
     metrics["micro_recall@p80"] = micro_rp80
+    metrics["micro_recall@p70"] = micro_rp70
+    metrics["micro_recall@p60"] = micro_rp60
+    metrics["micro_recall@p50"] = micro_rp50
     metrics["recall@10"] = recall_at_10
     metrics["recall@20"] = recall_at_20
     metrics["recall@30"] = recall_at_30

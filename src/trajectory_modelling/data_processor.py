@@ -1,5 +1,6 @@
 import os
 import csv
+import sys
 import json
 import logging
 import numpy as np
@@ -61,7 +62,7 @@ class readmissionProcessor(DataProcessor):
         elif int(visit_sliding_window) == 6: lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.VISIT_4,file.VISIT_5,file.VISIT_6,file.Label)
         return lines
      
-    def _create_examples(self, datasetFile, precomputedFeaturesDict, featureDimension):
+    def _create_examples(self, datasetFile, precomputedFeaturesDict, featureDimension, visit_sliding_window):
         """Creates examples for the training, dev and test sets.
         @param Features is a list with additional variables to be used"""
         examples, lengths, labels = [], [], []
@@ -69,7 +70,7 @@ class readmissionProcessor(DataProcessor):
                        
         for i, line in enumerate(datasetFile):
             subjectId, *hadmIds, label = line
-            numAdmissions = int(args.visit_sliding_window) - hadmIds.count(0.0)
+            numAdmissions = int(visit_sliding_window) - hadmIds.count(0.0)
             lengths.append(numAdmissions)
             labels.append(label)
             # print(subjectId, hadmIds, label)
@@ -81,7 +82,7 @@ class readmissionProcessor(DataProcessor):
                 featureRepresentation = precomputedFeaturesDict[hadmId][0]
                 example.append(featureRepresentation)
 # This padding part might not be correct, might need equal dimension 100?
-            while len(example) < int(args.visit_sliding_window):
+            while len(example) < int(visit_sliding_window):
                 example.append(padding)
             examples.append(example)
         return examples, lengths, labels, featureDimension    
@@ -140,6 +141,68 @@ class diagnosisProcessor(DataProcessor):
             examples.append(example)
         return examples, lengths, labels, featureDimension   
     
+    
+    
+class multihotDiagnosisProcessor(DataProcessor):        
+    def get_examples(self, data_dir, label, fold, visit_sliding_window):
+        datasetFile = self._read_csv(data_dir, fold, visit_sliding_window)
+        
+        if label == "LABEL_NEXT_SMALL_DIAG_ICD9":
+            sys.exit("Multi hot is not supported for ICD-9 yet, only CCS.")
+        elif label == "LABEL_NEXT_DIAG_CCS":
+            multiHotFile = os.path.join(data_dir, "fold" + str(fold) + "_allvisits_diagnosis_notext.csv")
+        featuresDict, featureDimension = self._read_multihot_file(multiHotFile)
+        return self._create_examples(datasetFile, featuresDict, label, featureDimension, visit_sliding_window)
+    
+    # def _read_csv(cls, input_file):
+    def _read_csv(cls, data_dir, fold, visit_sliding_window):
+        """Reads a comma separated value file."""
+        input_file = os.path.join(data_dir, "fold" + str(fold) + "_sliding" + str(visit_sliding_window) + "trajectory_diagnosis_notext.csv")
+        file=pd.read_csv(input_file)
+        if int(visit_sliding_window) == 3:
+            lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.LABEL_NEXT_SMALL_DIAG_ICD9, file.LABEL_NEXT_DIAG_CCS)
+        elif int(visit_sliding_window) == 6:
+            lines=zip(file.SUBJECT_ID,file.VISIT_1,file.VISIT_2,file.VISIT_3,file.VISIT_4,file.VISIT_5,file.VISIT_6,
+                      file.LABEL_NEXT_SMALL_DIAG_ICD9, file.LABEL_NEXT_DIAG_CCS)
+        return lines
+    
+    def _read_multihot_file(cls, input_file):
+        """Reads a comma separated value file."""
+        file = pd.read_csv(input_file)
+        lines = zip(file.SUBJECT_ID, file.HADM_ID, file.LABEL_DIAG_CCS)
+        featuresDict = dict()
+        for line in lines:
+            ccs_label = processDiagnosisLabel(line[2])
+            featuresDict[line[1]] = ccs_label
+        featureDimension = list(featuresDict.values())[0].shape[0]     
+        return featuresDict, featureDimension
+ 
+    def _create_examples(self, datasetFile, featuresDict, label, featureDimension, visit_sliding_window):
+        """Creates examples for the training, dev and test sets.
+        @param Features is a list with additional variables to be used"""
+        examples, lengths, labels = [], [], []
+        padding = [0]*featureDimension
+                       
+        for i, line in enumerate(datasetFile):
+            subjectId, *hadmIds, icd_label, ccs_label = line
+            numAdmissions = int(visit_sliding_window) - hadmIds.count(0.0)
+            lengths.append(numAdmissions)
+
+            if label == "LABEL_NEXT_SMALL_DIAG_ICD9":
+                sys.exit("Multi hot is not supported for ICD-9 yet, only CCS.")
+            elif label == "LABEL_NEXT_DIAG_CCS":
+                ccs_label = processDiagnosisLabel(ccs_label)
+                labels.append(ccs_label)
+            
+            example = []
+            for idx in range(numAdmissions):
+                hadmId = hadmIds[idx]
+                featureRepresentation = featuresDict[hadmId]
+                example.append(featureRepresentation)
+            while len(example) < int(visit_sliding_window):
+                example.append(padding)
+            examples.append(example)
+        return examples, lengths, labels, featureDimension 
     
 
 

@@ -53,7 +53,7 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from ranger21 import Ranger21 as RangerOptimizer
 #important
 
-from trajectory_modelling.data_processor import readmissionProcessor, diagnosisProcessor
+from trajectory_modelling.data_processor import readmissionProcessor, diagnosisProcessor, multihotDiagnosisProcessor
 from trajectory_modelling.modeling_trajectory import GRU, LSTM
 from trajectory_modelling.evaluation import compute_metrics_readmission, compute_metrics_diagnosis
 
@@ -117,11 +117,18 @@ def runTrajectoryModelling(args):
         if args.bidirectional:
             wandb.config.bidirectional = args.bidirectional  
         if args.visit_sliding_window:
-            wandb.config.visit_sliding_window = args.visit_sliding_window      
+            wandb.config.visit_sliding_window = args.visit_sliding_window
+        if args.weight_decay:
+            wandb.config.weight_decay = args.weight_decay  
+        if args.multi_hot_diag:
+            wandb.config.multi_hot_diag = args.multi_hot_diag  
             
-        
-        processors = {"diagnosis": diagnosisProcessor,
-                      "readmission": readmissionProcessor}
+        if args.multi_hot_diag:
+            processors = {"diagnosis": multihotDiagnosisProcessor,
+                          "readmission": readmissionProcessor}
+        else:
+            processors = {"diagnosis": diagnosisProcessor,
+                          "readmission": readmissionProcessor}
         
         if args.trajectory_subtask_name.lower() == "readmission":
             numLabels = 1
@@ -215,6 +222,7 @@ def runTrajectoryModelling(args):
             history_test_microprecision, history_test_microrecall, history_test_microf1, history_test_microAUC, history_test_micro_rp80 = [], [], [], [], []
             history_test_microAvgPrecision, history_test_recallat10, history_test_recallat20, history_test_recallat30, history_test_macro_rp80 = [], [], [], [], []
             history_val_RP80, history_val_auc, history_val_avgprecision, history_val_precision, history_val_recall, history_val_f1score = [], [], [], [], [], []
+            history_val_micro_rp50, history_val_micro_rp60, history_val_micro_rp70, history_test_micro_rp50, history_test_micro_rp60, history_test_micro_rp70 = [], [], [], [], [], []
             history_test_RP80, history_test_auc, history_test_avgprecision, history_test_precision, history_test_recall, history_test_f1score = [], [], [], [], [], []
             
     # Beginning the folding process here
@@ -258,6 +266,11 @@ def runTrajectoryModelling(args):
                     val_features   = list(itemgetter(*val_idx)(val_features))
                     val_lengths   = list(itemgetter(*val_idx)(val_lengths))
                     val_labels   = list(itemgetter(*val_idx)(val_labels))
+                    
+                    test_idx = get_indices_perclass_and_sample(test_labels)
+                    test_features   = list(itemgetter(*test_idx)(test_features))
+                    test_lengths   = list(itemgetter(*test_idx)(test_lengths))
+                    test_labels   = list(itemgetter(*test_idx)(test_labels))
 
                 train_all_features     = torch.tensor([feature for feature in train_features], dtype=torch.float)
                 train_all_lengths      = torch.tensor([length for length in train_lengths], dtype=torch.long)
@@ -299,12 +312,23 @@ def runTrajectoryModelling(args):
 
                 train_loss, min_validation_loss = 100000, 100000
                 min_val_rp80 = 0
+                patience_counter = 0
                 number_training_steps = 1
                 train_loss_history, val_loss_history = [], []
+                
 
+                # labels_1_counter = torch.sum(train_all_labels,0)
+                # labels_0_counter = train_all_labels.shape[0]-labels_1_counter
+                # pos_weights = labels_0_counter/labels_1_counter
+                # pos_weights[pos_weights == float("Inf")] = 0
+                # max_weight = torch.max(pos_weights)
+                # pos_weights[pos_weights == 0] = max_weight
+                # loss_criterion = BCEWithLogitsLoss(pos_weight=pos_weights)
+                
                 loss_criterion = BCEWithLogitsLoss() #BCEWithLogitsLoss has the sigmoid activation integrated, does not require sigmoid(logits) as input
                 optimizer = RangerOptimizer(params=model.parameters(),
                                             lr=args.learning_rate,
+                                            weight_decay=args.weight_decay,
                                             num_epochs=args.num_train_epochs,
                                             num_batches_per_epoch=len(train_dataloader))
                 model.train()
@@ -403,6 +427,9 @@ def runTrajectoryModelling(args):
                     elif args.trajectory_subtask_name.lower() == "diagnosis":
                         val_metrics = compute_metrics_diagnosis(df_val, numLabels, args, label=LabelToPredict, threshold=0.5)
                         wandb.log({"Val Loss":              val_loss,
+                                   "Val MicroRP50":         val_metrics["micro_recall@p50"],
+                                   "Val MicroRP60":         val_metrics["micro_recall@p60"],
+                                   "Val MicroRP70":         val_metrics["micro_recall@p70"],
                                    "Val MicroRP80":         val_metrics["micro_recall@p80"],
                                    "Val MacroRP80":         val_metrics["macro_recall@p80"],
                                    "Val MicroPrecision":    val_metrics["micro_precision"],
@@ -426,7 +453,12 @@ def runTrajectoryModelling(args):
                         # if val_rp80 > min_val_rp80:
                         #     min_val_rp80 = val_rp80
                             checkpoint_model_state = deepcopy(model.state_dict()) #must save a deepcopy, otherwise this is a reference to the state dict that keeps getting updated
-
+                        else:
+                            patience_counter += 1
+                            if patience_counter == args.patience:
+                                patience_counter = 0
+                                break
+                                
                     ## Setting model back in training mode:
                     model.train()
 
@@ -537,8 +569,11 @@ def runTrajectoryModelling(args):
                     history_test_f1score.append(test_f1score[1])
 
                 elif args.trajectory_subtask_name.lower() == "diagnosis":
-                    test_metrics = compute_metrics_diagnosis(df_val, numLabels, args, label=LabelToPredict, threshold=0.5)
+                    test_metrics = compute_metrics_diagnosis(df_test, numLabels, args, label=LabelToPredict, threshold=0.5)
                     wandb.log({"Test Loss":              test_loss,
+                               "Test MicroRP50":         test_metrics["micro_recall@p50"],
+                               "Test MicroRP60":         test_metrics["micro_recall@p60"],
+                               "Test MicroRP70":         test_metrics["micro_recall@p70"],
                                "Test MicroRP80":         test_metrics["micro_recall@p80"],
                                "Test MacroRP80":         test_metrics["macro_recall@p80"],
                                "Test MicroPrecision":    test_metrics["micro_precision"],
@@ -556,6 +591,9 @@ def runTrajectoryModelling(args):
                 
                     result = {'Training loss':           train_loss/number_training_steps,
                               'Val Loss':                val_loss,
+                              "Val MicroRP50":           val_metrics["micro_recall@p50"],
+                              "Val MicroRP60":           val_metrics["micro_recall@p60"],
+                              "Val MicroRP70":           val_metrics["micro_recall@p70"],
                               "Val MicroRP80":           val_metrics["micro_recall@p80"],
                               "Val MacroRP80":           val_metrics["macro_recall@p80"],
                               "Val MicroPrecision":      val_metrics["micro_precision"],
@@ -567,6 +605,9 @@ def runTrajectoryModelling(args):
                               "Val Recall@20":           val_metrics["recall@20"],
                               "Val Recall@30":           val_metrics["recall@30"],
                               'Test Loss':               test_loss,
+                              "Test MicroRP50":          test_metrics["micro_recall@p50"],
+                              "Test MicroRP60":          test_metrics["micro_recall@p60"],
+                              "Test MicroRP70":          test_metrics["micro_recall@p70"],
                               "Test MicroRP80":          test_metrics["micro_recall@p80"],
                               "Test MacroRP80":          test_metrics["macro_recall@p80"],
                               "Test MicroPrecision":     test_metrics["micro_precision"],
@@ -582,6 +623,9 @@ def runTrajectoryModelling(args):
                     history_training_loss.append(train_loss/number_training_steps)
                     history_val_loss.append(val_loss)
                     history_test_loss.append(test_loss)
+                    history_val_micro_rp50.append(val_metrics["micro_recall@p50"])
+                    history_val_micro_rp60.append(val_metrics["micro_recall@p60"])
+                    history_val_micro_rp70.append(val_metrics["micro_recall@p70"])
                     history_val_micro_rp80.append(val_metrics["micro_recall@p80"])
                     history_val_macro_rp80.append(val_metrics["macro_recall@p80"])
                     history_val_microprecision.append(val_metrics["micro_precision"])
@@ -593,6 +637,9 @@ def runTrajectoryModelling(args):
                     history_val_recallat20.append(val_metrics["recall@20"])     
                     history_val_recallat30.append(val_metrics["recall@30"])   
 
+                    history_test_micro_rp50.append(test_metrics["micro_recall@p50"])
+                    history_test_micro_rp60.append(test_metrics["micro_recall@p60"])
+                    history_test_micro_rp70.append(test_metrics["micro_recall@p70"])
                     history_test_micro_rp80.append(test_metrics["micro_recall@p80"])
                     history_test_macro_rp80.append(test_metrics["macro_recall@p80"])
                     history_test_microprecision.append(test_metrics["micro_precision"])
@@ -633,6 +680,9 @@ def runTrajectoryModelling(args):
                 
             elif args.trajectory_subtask_name.lower() == "diagnosis":
                 mean_result = {"KFold Avg Test loss":      sum(history_test_loss)/len(history_test_loss),
+                               "KFold Avg Micro RP50":     sum(history_test_micro_rp80)/len(history_test_micro_rp50),
+                               "KFold Avg Micro RP60":     sum(history_test_micro_rp80)/len(history_test_micro_rp60),
+                               "KFold Avg Micro RP70":     sum(history_test_micro_rp80)/len(history_test_micro_rp70),
                                "KFold Avg Micro RP80":     sum(history_test_micro_rp80)/len(history_test_micro_rp80),
                                "KFold Avg Macro RP80":     sum(history_test_macro_rp80)/len(history_test_macro_rp80),
                                "KFold Avg Micro F1":       sum(history_test_microf1)/len(history_test_microf1),                   
@@ -643,6 +693,9 @@ def runTrajectoryModelling(args):
                                "KFold Avg Recall@30":      sum(history_test_recallat30)/len(history_test_recallat30)}
                 
                 wandb.log({"KFold Avg Test loss":      sum(history_test_loss)/len(history_test_loss),
+                           "KFold Avg Micro RP50":     sum(history_test_micro_rp50)/len(history_test_micro_rp50),
+                           "KFold Avg Micro RP60":     sum(history_test_micro_rp60)/len(history_test_micro_rp60),
+                           "KFold Avg Micro RP70":     sum(history_test_micro_rp70)/len(history_test_micro_rp70),
                            "KFold Avg Micro RP80":     sum(history_test_micro_rp80)/len(history_test_micro_rp80),
                            "KFold Avg Macro RP80":     sum(history_test_macro_rp80)/len(history_test_macro_rp80),
                            "KFold Avg Micro F1":       sum(history_test_microf1)/len(history_test_microf1),                   

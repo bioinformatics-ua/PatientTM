@@ -15,6 +15,11 @@ def help(show=False):
                         required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
     
+    parser.add_argument("--bert_model", default=None, type=str,
+                        #required=True,
+                        help="Bert pre-trained model selected in the list: bert-base-uncased, "
+                             "bert-large-uncased, bert-base-cased, bert-base-multilingual, bert-base-chinese.")
+    
     parser.add_argument("--readmission_mode", default = None, type=str, help="early notes or discharge summary")
     
     parser.add_argument("--task_name",
@@ -26,7 +31,7 @@ def help(show=False):
     
     parser.add_argument("--trajectory_subtask_name",
                         default=None,
-                        required=True,
+                        #required=True,
                         type=str,
                         choices=["readmission", "diagnosis"],
                         help="The name of the subtask to run. Please select one of the following predictive tasks: [readmission, diagnosis].")
@@ -36,7 +41,14 @@ def help(show=False):
                         required=False,
                         type=str,
                         choices=["small_diag_icd9", "diag_ccs"],
-                        help="The type of code to predict in code predicting tasks. Please select one of the following predictive tasks: [small_diag_icd9, diag_ccs].")    
+                        help="The type of code to predict in code predicting tasks. Please select one of the following predictive tasks: [small_diag_icd9, diag_ccs].")   
+    
+    parser.add_argument("--max_seq_length",
+                        default=128,
+                        type=int,
+                        help="The maximum total input sequence length after WordPiece tokenization. \n"
+                             "Sequences longer than this will be truncated, and sequences shorter \n"
+                             "than this will be padded.")
     
     parser.add_argument("--output_dir",
                         default=None,
@@ -64,6 +76,10 @@ def help(show=False):
                         default=5e-5,
                         type=float,
                         help="The initial learning rate for Adam.")
+    parser.add_argument("--weight_decay",
+                        default=1e-4,
+                        type=float,
+                        help="The initial weight decay for the optimizer.")
     parser.add_argument("--num_train_epochs",
                         default=3.0,
                         type=float,
@@ -123,6 +139,10 @@ def help(show=False):
                         default=False,
                         action='store_true',
                         help="Save a model checkpoint using early stopping to prevent the saving of overfiting models.")
+    parser.add_argument("--patience",
+                        default=2000,
+                        type=int,
+                        help="Patience (number of steps) for early stop before breaking training loop.")
     parser.add_argument('--subsampling',
                         default=False,
                         action='store_true',
@@ -149,6 +169,10 @@ def help(show=False):
                         type=str,
                         choices=["3", "6"],
                         help="The number of visits to consider in the sliding window. Please select one of the following: [3, 6].")
+    parser.add_argument("--multi_hot_diag",
+                        default=False,
+                        action='store_true',
+                        help="Whether to use multi hot diagnoses input instead of embeddings or not.")
     
     
     if show:
