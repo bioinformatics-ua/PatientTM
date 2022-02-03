@@ -1,0 +1,9 @@
+[submodule "external_repos/ccs"]
+	path = external_repos/ccs
+	url = git@github.com:manels7/ccs.git
+[submodule "external_repos/UMLS/py-umls"]
+	path = external_repos/UMLS/py-umls
+	url = git@github.com:manels7/py-umls.git
+[submodule "external_repos/UMLS/pyumls"]
+	path = external_repos/UMLS/pyumls
+	url = git@github.com:manels7/py-umls.git
