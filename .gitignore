@@ -3,12 +3,19 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-
 data/original/
 data/extended/backup/
 data/extended/discharge/
+data/extended/discharge_finetuned/
 data/extended/3days/
 data/extended/2days/
+data/extended_folds/early
+data/extended_folds/early_finetuned
+data/extended_folds/early_subjectsplit
+data/extended_folds/discharge
+data/extended_folds/discharge_finetuned
+data/extended_folds/discharge_subjectsplit
+data/extended_folds/discharge_subjectsplit_trajectory/
 src/wandb/
 results/result_discharge/
 results/result_early/
@@ -16,6 +23,10 @@ model/discharge_readmission/pytorch_model.bin
 model/early_readmission/pytorch_model.bin
 model/pretraining/pytorch_model.bin
 external_repos/UMLS/2020AA/META/
+
+
+
+
 
 # C extensions
 *.so
