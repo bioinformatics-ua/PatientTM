@@ -110,7 +110,7 @@ def runDiagnosisPrediction(args):
         current_time = datetime.now().strftime("%Y-%m-%d_%H:%M:%S_")
 
         ##Initialize wandb to upload run data
-        wandb.init(project="clinicalBERT")#,config={"epochs": 4})
+        wandb.init(project="PatientTM_Admission")#,config={"epochs": 4})
         run_name = wandb.run.name
         run_dir  = os.path.split(wandb.run.dir)[0]
         
