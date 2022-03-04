@@ -22,7 +22,7 @@ More documentation about the system and how to run it is available [here](https:
 
 ### Cite
 
-Please cite the following, if you use PatientFM in your work:
+Please cite the following, if you use PatientTM in your work:
 
 ```bib
 Manuscript currently in development, will be updated as soon as possible.
