@@ -24,6 +24,7 @@ More documentation about the system and how to run it is available [here](https:
 
 Please cite the following, if you use PatientTM in your work:
 
+
 ```bib
 Manuscript currently in development, will be updated as soon as possible.
 ```
@@ -41,4 +42,3 @@ PatientTM is under GPL-3.0 license. For more information, click
 ### Acknowledgements
 
 We thank Kexin Huang for his publicly available repository for clinicalBERT, which was used as a base for exploring textual information from clinical notes. This repository was improved with numerous features, such as more robust data preprocessing and model validation mechanisms, and the resulting augmented version was integrated in PatientTM.
-

@@ -436,107 +436,225 @@ print("DATA PREPROCESSED")
 ### This way, since our methods run on the same set of admissions, we can see the
 ### progression of readmission scores.
 
-readmit_ID = df_adm[df_adm.OUTPUT_LABEL == 1].HADM_ID
-not_readmit_ID = df_adm[df_adm.OUTPUT_LABEL == 0].HADM_ID
-#subsampling to get the balanced pos/neg numbers of patients for each dataset
-not_readmit_ID_use = not_readmit_ID.sample(n=len(readmit_ID), random_state=1)
-id_val_test_t=readmit_ID.sample(frac=0.2,random_state=1)
-id_val_test_f=not_readmit_ID_use.sample(frac=0.2,random_state=1)
 
-id_train_t = readmit_ID.drop(id_val_test_t.index)
-id_train_f = not_readmit_ID_use.drop(id_val_test_f.index)
+df_adm.OUTPUT_LABEL.value_counts() #0 - 42358 / 1 - 2963 | Total: 45322 (93,46% vs 6,54%)
 
-id_val_t=id_val_test_t.sample(frac=0.5,random_state=1)
-id_test_t=id_val_test_t.drop(id_val_t.index)
+# Writing files for the discharge dataset
+all_HADM_IDs = df_adm.HADM_ID
+from sklearn.model_selection import StratifiedKFold
+skfold = StratifiedKFold(n_splits = 10, shuffle=True)
+i = 0
+with open("../data/extended_folds/distributions_hadmsplit.txt", "w") as file:
+    for train_index, test_index in skfold.split(X=all_HADM_IDs, y=df_adm.OUTPUT_LABEL):
+        file.write("Fold Number {}:\n".format(i))
+        print("Fold Number {}:\n".format(i))
+        # print(train_index, test_index)
+        # print(len(train_index), len(test_index))
+        # print(df_adm.HADM_ID[test_index])
+        fold_HADM_IDs = all_HADM_IDs[test_index]
+        fold_df = df_adm[df_adm.HADM_ID.isin(fold_HADM_IDs)]
+        # print(fold_df)
+        file.write("Label count considering HADM_IDs:\n")
+        file.write(str(fold_df.OUTPUT_LABEL.value_counts())+"\n")
+        # print("Label count considering HADM_IDs:")
+        # print(fold_df.OUTPUT_LABEL.value_counts())
+        discharge_fold = df_discharge[df_discharge.HADM_ID.isin(fold_HADM_IDs)].reset_index(drop=True)
+        file.write("Label count considering discharge with text:\n")
+        file.write(str(discharge_fold.Label.value_counts())+"\n")
+        # print("Label count considering discharge with text:")
+        # print(discharge_fold.Label.value_counts())
+        filename = '../data/extended_folds/discharge/fold' + str(i) + '_text.csv'
+        discharge_fold.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        discharge_fold_notext = discharge_fold.drop("TEXT", axis=1).groupby("HADM_ID").nth(0).reset_index(drop=False)
+        filename = '../data/extended_folds/discharge/fold' + str(i) + '_notext.csv'
+        discharge_fold_notext.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        file.write("Label count considering discharge without text:\n")
+        file.write(str(discharge_fold_notext.Label.value_counts())+"\n")
+        # print("Label count considering discharge without text:")
+        # print(discharge_fold_notext.Label.value_counts())
+###
+        file.write("------Moving from Discharge to Early -------\n")
+###
+        ### for Early notes experiment: we only need to find training set for 3 days, then we can test
+        ### both 3 days and 2 days. Since we split the data on patient level and experiments share admissions
+        ### in order to see the progression, the 2 days training dataset is a subset of 3 days training set.
+        ### So we only train 3 days and we can test/val on both 2 & 3days or any time smaller than 3 days. This means
+        ### if we train on a dataset with all the notes in n days, we can predict readmissions smaller than n days.
+###
+        # Writing files for the early dataset
+        fold_HADM_IDs = all_HADM_IDs[test_index]
+        df_less_3_fold = df_less_3[df_less_3.HADM_ID.isin(fold_HADM_IDs)].reset_index(drop=True)
+        file.write("Label count considering all early with text:\n")
+        file.write(str(df_less_3_fold.Label.value_counts())+"\n")
+        # print("Label count considering all early with text")
+        # print(df_less_3_fold.Label.value_counts())
+###        
+#This mechanism below was used to differentiate which samples can be used during test time
+###
+        df_less_3_fold["TEST_READY_2"] = "No"  
+        valid_HADM_IDs = df_less_3_fold[df_less_3_fold['DURATION'] >= 2].HADM_ID
+        file.write("Label count considering TEST 2 early days with text:\n")
+        file.write(str(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())+"\n")
+        # print("Label count considering TEST 2 early days with text")
+        # print(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())
+        df_less_3_fold.loc[df_less_3_fold["DURATION"]>=2, "TEST_READY_2"] = "Yes"
+        file.write("Test ready samples considering 2 early days with text:\n")
+        file.write(str(df_less_3_fold.TEST_READY_2.value_counts())+"\n")  
+        # print("Test ready samples considering 2 early days with text")
+        # print(df_less_3_fold.TEST_READY_2.value_counts())  
+###
+        df_less_3_fold["TEST_READY_3"] = "No"
+        valid_HADM_IDs = df_less_3_fold[df_less_3_fold['DURATION'] >= 3].HADM_ID
+        file.write("Label count considering TEST 3 early days with text:\n")
+        file.write(str(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())+"\n")
+        # print("Label count considering TEST 3 early days with text")
+        # print(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())
+        df_less_3_fold.loc[df_less_3_fold["DURATION"]>=3, "TEST_READY_3"] = "Yes"
+        file.write("Test ready samples considering 3 early days with text:\n")
+        file.write(str(df_less_3_fold.TEST_READY_3.value_counts())+"\n")
+        # print("Test ready samples considering 3 early days with text")
+        # print(df_less_3_fold.TEST_READY_3.value_counts())  
+        filename = '../data/extended_folds/early/fold' + str(i) + '_text.csv'
+        df_less_3_fold.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","TEST_READY_2","TEST_READY_3","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        df_less_3_fold_notext = df_less_3_fold.drop("TEXT", axis=1).groupby("HADM_ID").nth(0).reset_index(drop=False)
+        filename = '../data/extended_folds/early/fold' + str(i) + '_notext.csv'
+        df_less_3_fold_notext.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","TEST_READY_2","TEST_READY_3","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        file.write("Label count considering early without text:\n")
+        file.write(str(df_less_3_fold_notext.Label.value_counts())+"\n")
+        file.write("Test ready samples considering 2 early days without text:\n")
+        file.write(str(df_less_3_fold_notext.TEST_READY_2.value_counts())+"\n")
+        file.write("Test ready samples considering 3 early days without text:\n")
+        file.write(str(df_less_3_fold_notext.TEST_READY_3.value_counts())+"\n")
+        file.write("\n\n\n")
+        # print("Label count considering early without text:")
+        # print(df_less_3_fold_notext.Label.value_counts())
+        # print("Test ready samples considering 2 early days without text")
+        # print(df_less_3_fold_notext.TEST_READY_2.value_counts())
+        # print("Test ready samples considering 3 early days without text")
+        # print(df_less_3_fold_notext.TEST_READY_3.value_counts())
+        # print("\n\n")
+        i+=1
 
-id_val_f=id_val_test_f.sample(frac=0.5,random_state=1)
-id_test_f=id_val_test_f.drop(id_val_f.index)
+        
+        
+#Now splitting by Subject Id and not by Admission Id       
+    
+all_SUBJECT_IDs = df_adm.groupby(["SUBJECT_ID"]).size().reset_index(name='COUNTS')
+SUBJECT_IDs_1visit = all_SUBJECT_IDs[all_SUBJECT_IDs["COUNTS"]==1]        # 28173 subjects
+SUBJECT_IDs_multiplevisits = all_SUBJECT_IDs[all_SUBJECT_IDs["COUNTS"]>1] # 6387  subjects
 
-# test if there is overlap between train and test, should return "array([], dtype=int64)"
-(pd.Index(id_test_t).intersection(pd.Index(id_train_t))).values
+df_subject_label = (df_adm.groupby(['SUBJECT_ID'])
+                          .agg({'OUTPUT_LABEL': 'max'})
+                          .rename(columns={'OUTPUT_LABEL': 'MAX_LABEL'})
+                          .reset_index()
+                          )
 
-id_test = pd.concat([id_test_t, id_test_f])
-test_id_label = pd.DataFrame(data = list(zip(id_test, [1]*len(id_test_t)+[0]*len(id_test_f))), columns = ['id','label'])
+readmitted_subjects = df_subject_label[df_subject_label["MAX_LABEL"]==1].reset_index(drop=True).drop(["MAX_LABEL"], axis=1)      # 2263 subjects
+non_readmitted_subjects = df_subject_label[df_subject_label["MAX_LABEL"]==0].reset_index(drop=True).drop(["MAX_LABEL"], axis=1)  # 32297 subjects
 
-id_val = pd.concat([id_val_t, id_val_f])
-val_id_label = pd.DataFrame(data = list(zip(id_val, [1]*len(id_val_t)+[0]*len(id_val_f))), columns = ['id','label'])
+from sklearn.model_selection import KFold
+i = 0
+readmitted_folds = []
+non_readmitted_folds = []
 
-id_train = pd.concat([id_train_t, id_train_f])
-train_id_label = pd.DataFrame(data = list(zip(id_train, [1]*len(id_train_t)+[0]*len(id_train_f))), columns = ['id','label'])
+kfold = KFold(n_splits = 10, shuffle=True)
+for train_index, test_index in kfold.split(X=readmitted_subjects.SUBJECT_ID):
+    readmitted_folds.append(test_index)
 
-#get discharge train/val/test
+for train_index, test_index in kfold.split(X=non_readmitted_subjects.SUBJECT_ID):
+    non_readmitted_folds.append(test_index)
 
-discharge_train = df_discharge[df_discharge.HADM_ID.isin(train_id_label.id)]
-discharge_val = df_discharge[df_discharge.HADM_ID.isin(val_id_label.id)]
-discharge_test = df_discharge[df_discharge.HADM_ID.isin(test_id_label.id)]
+with open("../data/extended_folds/distributions_subjectsplit.txt", "w") as file:
+    for readmit_index, non_readmit_index in zip(readmitted_folds, non_readmitted_folds):
+        file.write("Fold Number {}:\n".format(i))
+        print("Fold Number {}:\n".format(i))
+        fold_readmit_SUBJECT_IDS = readmitted_subjects.SUBJECT_ID[readmit_index]
+        fold_non_readmit_SUBJECT_IDS = non_readmitted_subjects.SUBJECT_ID[non_readmit_index]
+        fold_readmit_HADM_IDs = df_adm[df_adm.SUBJECT_ID.isin(fold_readmit_SUBJECT_IDS)].HADM_ID
+        fold_non_readmit_HADM_IDs = df_adm[df_adm.SUBJECT_ID.isin(fold_non_readmit_SUBJECT_IDS)].HADM_ID
+        fold_HADM_IDs = pd.concat([fold_readmit_HADM_IDs, fold_non_readmit_HADM_IDs])
+        #Shuffle the samples up next
+        fold_HADM_IDs = fold_HADM_IDs.sample(frac = 1)
+        fold_df = df_adm[df_adm.HADM_ID.isin(fold_HADM_IDs)]
+        #print(fold_df)
+        file.write("Label count considering HADM_IDs:\n")
+        file.write(str(fold_df.OUTPUT_LABEL.value_counts())+"\n")
+        #print("Label count considering HADM_IDs:")
+        #print(fold_df.OUTPUT_LABEL.value_counts())
+        discharge_fold = df_discharge[df_discharge.HADM_ID.isin(fold_HADM_IDs)].reset_index(drop=True)
+        file.write("Label count considering discharge with text:\n")
+        file.write(str(discharge_fold.Label.value_counts())+"\n")
+        # print("Label count considering discharge with text:")
+        # print(discharge_fold.Label.value_counts())
+        filename = '../data/extended_folds/discharge_subjectsplit/fold' + str(i) + '_text.csv'
+        discharge_fold.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        discharge_fold_notext = discharge_fold.drop("TEXT", axis=1).groupby("HADM_ID").nth(0).reset_index(drop=False)
+        filename = '../data/extended_folds/discharge_subjectsplit/fold' + str(i) + '_notext.csv'
+        discharge_fold_notext.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        file.write("Label count considering discharge without text:\n")
+        file.write(str(discharge_fold_notext.Label.value_counts())+"\n")
+        # print("Label count considering discharge without text:")
+        # print(discharge_fold_notext.Label.value_counts())
+    ###
+        file.write("------Moving from Discharge to Early -------\n")
+    ###
+        ### for Early notes experiment: we only need to find training set for 3 days, then we can test
+        ### both 3 days and 2 days. Since we split the data on patient level and experiments share admissions
+        ### in order to see the progression, the 2 days training dataset is a subset of 3 days training set.
+        ### So we only train 3 days and we can test/val on both 2 & 3days or any time smaller than 3 days. This means
+        ### if we train on a dataset with all the notes in n days, we can predict readmissions smaller than n days.
+    ###
+        # Writing files for the early dataset
+        df_less_3_fold = df_less_3[df_less_3.HADM_ID.isin(fold_HADM_IDs)].reset_index(drop=True)
+        file.write("Label count considering all early with text:\n")
+        file.write(str(df_less_3_fold.Label.value_counts())+"\n")
+        # print("Label count considering all early with text")
+        # print(df_less_3_fold.Label.value_counts())
+    ###        
+    #This mechanism below was used to differentiate which samples can be used during test time
+    ###
+        df_less_3_fold["TEST_READY_2"] = "No"  
+        valid_HADM_IDs = df_less_3_fold[df_less_3_fold['DURATION'] >= 2].HADM_ID
+        file.write("Label count considering TEST 2 early days with text:\n")
+        file.write(str(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())+"\n")
+        # print("Label count considering TEST 2 early days with text")
+        # print(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())
+        df_less_3_fold.loc[df_less_3_fold["DURATION"]>=2, "TEST_READY_2"] = "Yes"
+        file.write("Test ready samples considering 2 early days with text:\n")
+        file.write(str(df_less_3_fold.TEST_READY_2.value_counts())+"\n")  
+        # print("Test ready samples considering 2 early days with text")
+        # print(df_less_3_fold.TEST_READY_2.value_counts())  
+    ###
+        df_less_3_fold["TEST_READY_3"] = "No"
+        valid_HADM_IDs = df_less_3_fold[df_less_3_fold['DURATION'] >= 3].HADM_ID
+        file.write("Label count considering TEST 3 early days with text:\n")
+        file.write(str(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())+"\n")
+        # print("Label count considering TEST 3 early days with text")
+        # print(df_less_3_fold[df_less_3_fold.HADM_ID.isin(valid_HADM_IDs)].Label.value_counts())
+        df_less_3_fold.loc[df_less_3_fold["DURATION"]>=3, "TEST_READY_3"] = "Yes"
+        file.write("Test ready samples considering 3 early days with text:\n")
+        file.write(str(df_less_3_fold.TEST_READY_3.value_counts())+"\n")
+        # print("Test ready samples considering 3 early days with text")
+        # print(df_less_3_fold.TEST_READY_3.value_counts())  
+        filename = '../data/extended_folds/early_subjectsplit/fold' + str(i) + '_text.csv'
+        df_less_3_fold.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","TEST_READY_2","TEST_READY_3","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        df_less_3_fold_notext = df_less_3_fold.drop("TEXT", axis=1).groupby("HADM_ID").nth(0).reset_index(drop=False)
+        filename = '../data/extended_folds/early_subjectsplit/fold' + str(i) + '_notext.csv'
+        df_less_3_fold_notext.to_csv(filename,
+                                    columns=["SUBJECT_ID","HADM_ID","TEST_READY_2","TEST_READY_3","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
+        file.write("Label count considering early without text:\n")
+        file.write(str(df_less_3_fold_notext.Label.value_counts())+"\n")
+        file.write("Test ready samples considering 2 early days without text:\n")
+        file.write(str(df_less_3_fold_notext.TEST_READY_2.value_counts())+"\n")
+        file.write("Test ready samples considering 3 early days without text:\n")
+        file.write(str(df_less_3_fold_notext.TEST_READY_3.value_counts())+"\n")
+        file.write("\n\n\n")
+        i+=1
 
-# subsampling for training....since we obtain training on patient admission level so now we have same number of pos/neg readmission
-# but each admission is associated with different length of notes and we train on each chunks of notes, not on the admission, we need
-# to balance the pos/neg chunks on training set. (val and test set are fine) Usually, positive admissions have longer notes, so we need
-# find some negative chunks of notes from not_readmit_ID that we haven't used yet
-
-df = pd.concat([not_readmit_ID_use, not_readmit_ID])
-df = df.drop_duplicates(keep=False)
-#check to see if there are overlaps
-(pd.Index(df).intersection(pd.Index(not_readmit_ID_use))).values
-
-# for this set of split with random_state=1, we find we need 400 more negative training samples
-not_readmit_ID_more = df.sample(n=400, random_state=1)
-discharge_train_snippets = pd.concat([df_discharge[df_discharge.HADM_ID.isin(not_readmit_ID_more)], discharge_train])
-
-#shuffle
-discharge_train_snippets = discharge_train_snippets.sample(frac=1, random_state=1).reset_index(drop=True)
-
-#check if balanced
-discharge_train_snippets.Label.value_counts()
-
-print("BEGINNING SAVING TO CSV")
-
-discharge_train_snippets.to_csv('../data/extended/discharge/train.csv',
-                                columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
-
-discharge_val.to_csv('../data/extended/discharge/val.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
-
-discharge_test.to_csv('../data/extended/discharge/test.csv',
-                     columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
-
-### for Early notes experiment: we only need to find training set for 3 days, then we can test
-### both 3 days and 2 days. Since we split the data on patient level and experiments share admissions
-### in order to see the progression, the 2 days training dataset is a subset of 3 days training set.
-### So we only train 3 days and we can test/val on both 2 & 3days or any time smaller than 3 days. This means
-### if we train on a dataset with all the notes in n days, we can predict readmissions smaller than n days.
-
-#for 3 days note, similar to discharge
-
-early_train = df_less_3[df_less_3.HADM_ID.isin(train_id_label.id)]
-not_readmit_ID_more = df.sample(n=500, random_state=1)
-early_train_snippets = pd.concat([df_less_3[df_less_3.HADM_ID.isin(not_readmit_ID_more)], early_train])
-#shuffle
-early_train_snippets = early_train_snippets.sample(frac=1, random_state=1).reset_index(drop=True)
-early_train_snippets.to_csv('../data/extended/3days/train.csv',
-                            columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
-
-early_val = df_less_3[df_less_3.HADM_ID.isin(val_id_label.id)]
-early_val.to_csv('../data/extended/3days/val.csv',
-                 columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
-
-# we want to test on admissions that are not discharged already. So for less than 3 days of notes experiment,
-# we filter out admissions discharged within 3 days
-actionable_ID_3days = df_adm[df_adm['DURATION'] >= 3].HADM_ID
-test_actionable_id_label = test_id_label[test_id_label.id.isin(actionable_ID_3days)]
-early_test = df_less_3[df_less_3.HADM_ID.isin(test_actionable_id_label.id)]
-
-early_test.to_csv('../data/extended/3days/test.csv',
-                  columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])
-
-#for 2 days notes, we only obtain test set. Since the model parameters are tuned on the val set of 3 days
-
-actionable_ID_2days = df_adm[df_adm['DURATION'] >= 2].HADM_ID
-
-test_actionable_id_label_2days = test_id_label[test_id_label.id.isin(actionable_ID_2days)]
-
-early_test_2days = df_less_2[df_less_2.HADM_ID.isin(test_actionable_id_label_2days.id)]
-
-early_test_2days.to_csv('../data/extended/2days/test.csv',
-                        columns=["SUBJECT_ID","HADM_ID","ADMITTIME","DAYS_NEXT_ADMIT","DAYS_PREV_ADMIT","DURATION","DIAG_ICD9","SMALL_DIAG_ICD9","DIAG_CCS","PROC_ICD9","SMALL_PROC_ICD9","PROC_CCS","NDC","CUI","Label","TEXT","NEXT_SMALL_DIAG_ICD9","NEXT_DIAG_CCS","NEXT_SMALL_PROC_ICD9","NEXT_PROC_CCS","NEXT_CUI"])

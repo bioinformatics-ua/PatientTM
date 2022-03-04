@@ -1,6 +1,8 @@
 import argparse
 
-from run_readmission import runReadmission
+from readmission.run_model import runReadmission
+from diagnosis_prediction.run_model import runDiagnosisPrediction
+from trajectory_modelling.run_model import runTrajectoryModelling
 
 
 def help(show=False):
@@ -12,7 +14,9 @@ def help(show=False):
                         type=str,
                         required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
-    parser.add_argument("--bert_model", default=None, type=str, required=True,
+    
+    parser.add_argument("--bert_model", default=None, type=str,
+                        #required=True,
                         help="Bert pre-trained model selected in the list: bert-base-uncased, "
                              "bert-large-uncased, bert-base-cased, bert-base-multilingual, bert-base-chinese.")
     
@@ -22,8 +26,29 @@ def help(show=False):
                         default=None,
                         required=True,
                         type=str,
-                        choices=["readmission", "code_prediction"],
-                        help="The name of the task to run. Please select one of the following predictive tasks: [readmission, code_prediction].")    
+                        choices=["readmission", "diagnosis_prediction", "trajectory_modelling"],
+                        help="The name of the task to run. Please select one of the following predictive tasks: [readmission, diagnosis_prediction, trajectory_modelling].")
+    
+    parser.add_argument("--trajectory_subtask_name",
+                        default=None,
+                        #required=True,
+                        type=str,
+                        choices=["readmission", "diagnosis"],
+                        help="The name of the subtask to run. Please select one of the following predictive tasks: [readmission, diagnosis].")
+    
+    parser.add_argument("--codes_to_predict",
+                        default=None,
+                        required=False,
+                        type=str,
+                        choices=["small_diag_icd9", "diag_ccs"],
+                        help="The type of code to predict in code predicting tasks. Please select one of the following predictive tasks: [small_diag_icd9, diag_ccs].")   
+    
+    parser.add_argument("--max_seq_length",
+                        default=128,
+                        type=int,
+                        help="The maximum total input sequence length after WordPiece tokenization. \n"
+                             "Sequences longer than this will be truncated, and sequences shorter \n"
+                             "than this will be padded.")
     
     parser.add_argument("--output_dir",
                         default=None,
@@ -31,13 +56,6 @@ def help(show=False):
                         required=True,
                         help="The output directory where the model checkpoints will be written.")
 
-    ## Other parameters
-    parser.add_argument("--max_seq_length",
-                        default=128,
-                        type=int,
-                        help="The maximum total input sequence length after WordPiece tokenization. \n"
-                             "Sequences longer than this will be truncated, and sequences shorter \n"
-                             "than this will be padded.")
     parser.add_argument("--do_train",
                         default=False,
                         action='store_true',
@@ -58,6 +76,10 @@ def help(show=False):
                         default=5e-5,
                         type=float,
                         help="The initial learning rate for Adam.")
+    parser.add_argument("--weight_decay",
+                        default=1e-4,
+                        type=float,
+                        help="The initial weight decay for the optimizer.")
     parser.add_argument("--num_train_epochs",
                         default=3.0,
                         type=float,
@@ -117,7 +139,42 @@ def help(show=False):
                         default=False,
                         action='store_true',
                         help="Save a model checkpoint using early stopping to prevent the saving of overfiting models.")
-
+    parser.add_argument("--patience",
+                        default=2000,
+                        type=int,
+                        help="Patience (number of steps) for early stop before breaking training loop.")
+    parser.add_argument('--subsampling',
+                        default=False,
+                        action='store_true',
+                        help="Subsample the training datasets to equalize the distribution of positive vs negative classes. Useful for readmission prediction.")
+    parser.add_argument('--recurrent_hidden_size',
+                        type=int,
+                        default=100,
+                        help="Hidden size for the recurrent network.")
+    parser.add_argument('--recurrent_num_layers',
+                        type=int,
+                        default=1,
+                        help="Number of layers in the recurrent network.")
+    parser.add_argument("--bidirectional",
+                        default=False,
+                        action='store_true',
+                        help="Whether to have a bidirectional recurrent model.")
+    parser.add_argument("--recurrent_network",
+                        default=None,
+                        type=str,
+                        choices=["LSTM", "GRU"],
+                        help="The type of recurrent network to use. Please select one of the following: [GRU, LSTM].")
+    parser.add_argument("--visit_sliding_window",
+                        default=None,
+                        type=str,
+                        choices=["3", "6"],
+                        help="The number of visits to consider in the sliding window. Please select one of the following: [3, 6].")
+    parser.add_argument("--multi_hot_diag",
+                        default=False,
+                        action='store_true',
+                        help="Whether to use multi hot diagnoses input instead of embeddings or not.")
+    
+    
     if show:
         parser.print_help()
     return parser.parse_args()
@@ -133,8 +190,10 @@ def main():
         
     if args.task_name == "readmission":
         runReadmission(args)
-    # elif args.task_name == "code_prediction":
-    #     runCodePrediction(args)
+    elif args.task_name == "diagnosis_prediction":
+        runDiagnosisPrediction(args)
+    elif args.task_name == "trajectory_modelling":
+        runTrajectoryModelling(args)
 
     
 main()

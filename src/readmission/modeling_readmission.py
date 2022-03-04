@@ -1018,9 +1018,9 @@ class BertForSequenceClassificationOriginal(PreTrainedBertModel):
             #loss = loss_fct(n.reshape(-1,1), labels.float().reshape(-1,1))
             n = torch.squeeze(m(logits), dim=-1)
             loss = loss_fct(n, labels.float())
-            return loss, logits
+            return pooled_output2, loss, logits
         else:
-            return logits
+            return pooled_output2, logits
 
 
 
@@ -1072,7 +1072,7 @@ class BertForSequenceClassification(PreTrainedBertModel):
     def __init__(self, config, num_labels, features):
         super(BertForSequenceClassification, self).__init__(config)
         self.bert = BertModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.classifier = nn.Linear(config.hidden_size, num_labels)  # This layer will be unused to avoid using a pre-trained layer
         
         classifier_size = 0
         
@@ -1125,17 +1125,16 @@ class BertForSequenceClassification(PreTrainedBertModel):
             # ## This is a shared layer, not a fully connected layer, hence all "features" must output tensors with the same size to go through this layer
             # self.shared_layer = SharedLayer(config)
           
-        self.classifier = nn.Linear(classifier_size, num_labels)   
+        self.final_classifier = nn.Linear(classifier_size, num_labels)   
         self.apply(self.init_bert_weights)
 
 
-    def forward(self, input_ids=None, token_type_ids=None, attention_mask=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
+    def forward(self, precomputed_text=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
         layer_outputs = []
         if features_name is not None:
             if "clinical_text" in features_name:
-                _, bert_pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-                pooled_output2 = self.dropout(bert_pooled_output)
-                layer_outputs.append(pooled_output2)
+                clinicaltext_output = precomputed_text
+                layer_outputs.append(clinicaltext_output)
             if "admittime" in features_name:
                 admittime_output = self.admittime_layer(features_tensors[feature_position_dict["admittime"]])
                 layer_outputs.append(admittime_output)
@@ -1172,33 +1171,17 @@ class BertForSequenceClassification(PreTrainedBertModel):
         #Processo final de combinar? Para já concatenação, é linear.... depois bilstm-crf?
         output = torch.cat(([i for i in layer_outputs]),dim=1)
 
-     
-    
-#             # if "admittime" in features_name:
-#             #     print(pooled_output2.size())
-#             #     print(daysnextadmit_output.size())
-#             #     pooled_output2 = torch.cat((pooled_output2, admittime_output), dim=1)
-#             if "daystonextadmit" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, daysnextadmit_output), dim=1)
-#             if "daystoprevadmit" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, daysprevadmit_output), dim=1)
-#             if "duration" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, duration_output), dim=1)
-#             if "small_diag_icd9" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, diag_icd9_output), dim=1)
-#             if "small_proc_icd9" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, proc_icd9_output), dim=1)
-#             if "diag_ccs" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, diag_ccs_output), dim=1)
-#             if "proc_ccs" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, proc_ccs_output), dim=1)
-#             if "cui" in features_name:
-#                 pooled_output2 = torch.cat((pooled_output2, cui_output), dim=1)
-
-        logits = self.classifier(output)
+        logits = self.final_classifier(output)
         
         if labels is not None:
             loss_fct = BCELoss()
+            # positive_class_weight = 0.6
+            # negative_class_weight = 0.4
+            # weights = [positive_class_weight if label == 1.0 else negative_class_weight for label in labels]
+            # weights = torch.tensor(weights, dtype=torch.float)
+            # loss_fct = BCELoss(weight=weights)
+            # loss_fct = BCELoss_class_weighted(weights=[0.5,1])
+            
             m = nn.Sigmoid()
 # NOTE: for multi class the sigmoid activation must be changed to softmax and the loss must be changed from binary cross entropy to cross entropy
             n = torch.squeeze(m(logits), dim=-1)
@@ -1208,6 +1191,12 @@ class BertForSequenceClassification(PreTrainedBertModel):
             return logits
 
         
+def BCELoss_class_weighted(weights):
+    def loss(logits, labels):
+        input = torch.clamp(logits,min=1e-7,max=1-1e-7)
+        bce = - weights[1] * labels * torch.log(logits) - (1 - labels) * weights[0] * torch.log(1 - logits)
+        return torch.mean(bce)
+    return loss
         
         
         
