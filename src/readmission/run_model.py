@@ -52,8 +52,9 @@ from pytorch_pretrained_bert.optimization import BertAdam
 from ranger21 import Ranger21 as RangerOptimizer
 #important
 
-from readmission.modeling_readmission import BertForSequenceClassification, BertForSequenceClassificationOriginal
+from readmission.modeling_readmission import BertForSequenceClassificationOriginal, BertForSequenceClassificationRuntimeClinicalText, BertForSequenceClassificationPrecomputedClinicalText
 from readmission.data_processor import convert_examples_to_features, readmissionProcessorText, readmissionProcessorNoText
+from readmission.data_processor_runtime import convert_examples_to_features_runtime, readmissionProcessorTextRuntime
 from readmission.evaluation import vote_score, vote_pr_curve
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
@@ -98,6 +99,26 @@ def get_indices_perclass_and_sample(feature_list):
     return [*indices_0, *indices_1]
 
 
+def precomputed_state_bert(model):
+    for name, param in model.named_parameters():
+        if name.startswith("bert"):      
+            param.requires_grad = False
+            param = param.cpu() # Force the unused parameters to the cpu, to free GPU space for other things
+            
+def fully_frozen_state_bert(model):
+    for name, param in model.named_parameters():
+        if name.startswith("bert"):         
+            param.requires_grad = False
+
+def finetune_frozen_bert(model, bert_num_trainable_layers):
+    FREEZABLE_ENCODERS = 12 - bert_num_trainable_layers
+    NUM_LAYERS_PER_ENCODER = 16
+    params = list(model.named_parameters())  
+    freezable_params = params[: 5 + FREEZABLE_ENCODERS * NUM_LAYERS_PER_ENCODER]
+    for name, param in freezable_params:          
+        param.requires_grad = False
+
+
 def runReadmission(args):
     
     try:
@@ -137,7 +158,11 @@ def runReadmission(args):
         
         if "clinical_text" in args.features:
             file_ending = "_text.csv"
-            processors = {"readmission": readmissionProcessorText}
+            if args.precomputed_text:
+                processors = {"readmission": readmissionProcessorText}
+            else:
+                processors = {"readmission": readmissionProcessorTextRuntime}  
+                tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         else:
             file_ending = "_notext.csv"
             processors = {"readmission": readmissionProcessorNoText}
@@ -190,15 +215,16 @@ def runReadmission(args):
 
         if args.do_train:
 
-            specialVal = False
-            specialTest = False
-
             cvFolds = 10
             folds = [i for i in range(cvFolds)]
             folds_dataset = []
             for i in folds:
                 dataset = processor.get_examples(args.data_dir, features=args.features, fold=i)
-                folds_dataset.append(convert_examples_to_features(dataset, label_list, args.features, maxLenDict))
+                if "clinical_text" in args.features and not args.precomputed_text:             
+                    folds_dataset.append(convert_examples_to_features_runtime(dataset, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict))               
+                else:
+                    folds_dataset.append(convert_examples_to_features(dataset, label_list, args.features, maxLenDict))
+                    
             print("All dataset folds loaded.\n")
 
             history_training_loss, history_validation_loss, history_test_loss = [], [], []
@@ -206,8 +232,6 @@ def runReadmission(args):
             history_test_accuracy, history_test_RP80, history_test_precision, history_test_recall, history_test_f1score = [], [], [], [], []
 
     # Beginning the folding process here
-            # repeatedkFold = RepeatedKFold(n_splits=2, n_repeats=2, random_state=2652124)
-
             kFold = KFold(n_splits = cvFolds)
             for i, (train_index, test_index) in enumerate(kFold.split(folds)):
                 val_index = [train_index[-1]] #We select the last partition from the train set for validation
@@ -216,16 +240,6 @@ def runReadmission(args):
                 train_features = [feature for fold_index in train_index for feature in folds_dataset[fold_index]]
                 val_features   = [feature for fold_index in val_index   for feature in folds_dataset[fold_index]]
                 test_features  = [feature for fold_index in test_index  for feature in folds_dataset[fold_index]]
-
-        ## Special test with original test dataset
-                if specialVal:
-                    val_dataset = processor.get_examples("/clinicalBERT/data/extended/discharge/test.csv", features=args.features,
-                                                          fold=i, numpy_dir="/clinicalBERT/data/extended/discharge/test_precomputed_text.npy")
-                    val_features = convert_examples_to_features(val_dataset, label_list, args.features, maxLenDict)
-                if specialTest:
-                    test_dataset = processor.get_examples("/clinicalBERT/data/extended/discharge/test.csv", features=args.features,
-                                                          fold=i, numpy_dir="/clinicalBERT/data/extended/discharge/test_precomputed_text.npy")
-                    test_features = convert_examples_to_features(test_dataset, label_list, args.features, maxLenDict)
 
                 train_idx = [i for i in range(len(train_features))]
                 val_idx = [i for i in range(len(val_features))]
@@ -241,7 +255,6 @@ def runReadmission(args):
                     val_features   = list(itemgetter(*val_idx)(val_features))
                     test_features  = list(itemgetter(*test_idx)(test_features))
 
-
                 num_train_steps = int(len(train_features) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
                 logger.info("***** Running training in configuration %d *****", i)
                 logger.info("  Num examples = %d", len(train_features))
@@ -249,15 +262,33 @@ def runReadmission(args):
                 logger.info("  Num steps = %d", num_train_steps)
 
                 if "clinical_text" in args.features:
-                    train_precomputed_text = torch.tensor([f.clinical_text for f in train_features], dtype=torch.float)
-                    train_all_label_ids    = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-                    train_tensors          = [train_precomputed_text, train_all_label_ids]
-                    val_precomputed_text   = torch.tensor([f.clinical_text for f in val_features], dtype=torch.float)
-                    val_all_label_ids      = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
-                    val_tensors            = [val_precomputed_text, val_all_label_ids]
-                    test_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
-                    test_all_label_ids     = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
-                    test_tensors           = [test_precomputed_texts, test_all_label_ids]
+                    if args.precomputed_text:
+                        train_precomputed_text = torch.tensor([f.clinical_text for f in train_features], dtype=torch.float)
+                        train_all_label_ids    = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+                        train_tensors          = [train_precomputed_text, train_all_label_ids]
+                        val_precomputed_text   = torch.tensor([f.clinical_text for f in val_features], dtype=torch.float)
+                        val_all_label_ids      = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
+                        val_tensors            = [val_precomputed_text, val_all_label_ids]
+                        test_precomputed_texts = torch.tensor([f.clinical_text for f in test_features], dtype=torch.float)
+                        test_all_label_ids     = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+                        test_tensors           = [test_precomputed_texts, test_all_label_ids]
+                    else:
+                        train_all_input_ids    = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+                        train_all_input_mask   = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+                        train_all_segment_ids  = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+                        train_all_label_ids    = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+                        train_tensors          = [train_all_input_ids, train_all_input_mask, train_all_segment_ids, train_all_label_ids]
+                        val_all_input_ids      = torch.tensor([f.input_ids for f in val_features], dtype=torch.long)
+                        val_all_input_mask     = torch.tensor([f.input_mask for f in val_features], dtype=torch.long)
+                        val_all_segment_ids    = torch.tensor([f.segment_ids for f in val_features], dtype=torch.long)
+                        val_all_label_ids      = torch.tensor([f.label_id for f in val_features], dtype=torch.long)
+                        val_tensors            = [val_all_input_ids, val_all_input_mask, val_all_segment_ids, val_all_label_ids] 
+                        test_all_input_ids     = torch.tensor([f.input_ids for f in test_features], dtype=torch.long)
+                        test_all_input_mask    = torch.tensor([f.input_mask for f in test_features], dtype=torch.long)
+                        test_all_segment_ids   = torch.tensor([f.segment_ids for f in test_features], dtype=torch.long)
+                        test_all_label_ids     = torch.tensor([f.label_id for f in test_features], dtype=torch.long)
+                        test_tensors           = [test_all_input_ids, test_all_input_mask, test_all_segment_ids, test_all_label_ids]
+
                 else:
                     train_all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
                     train_tensors       = [train_all_label_ids]
@@ -269,18 +300,6 @@ def runReadmission(args):
                 featurePositionDict = {}
                 positionIdx=0
 
-                if "admittime" in args.features:
-                    train_tensors.append(torch.tensor([f.admittime for f in train_features], dtype=torch.long))  #long, float, or other??!
-                    val_tensors.append(torch.tensor([f.admittime for f in val_features], dtype=torch.long))       #long, float, or other??!
-                    test_tensors.append(torch.tensor([f.admittime for f in test_features], dtype=torch.long)) #long, float, or other??!
-                    featurePositionDict["admittime"] = positionIdx
-                    positionIdx+=1
-                if "daystonextadmit" in args.features:
-                    train_tensors.append(torch.tensor([f.daystonextadmit for f in train_features], dtype=torch.float))
-                    val_tensors.append(torch.tensor([f.daystonextadmit for f in val_features], dtype=torch.float))
-                    test_tensors.append(torch.tensor([f.daystonextadmit for f in test_features], dtype=torch.float))
-                    featurePositionDict["daystonextadmit"] = positionIdx
-                    positionIdx+=1
                 if "daystoprevadmit" in args.features:
                     train_tensors.append(torch.tensor([f.daystoprevadmit for f in train_features], dtype=torch.float))
                     val_tensors.append(torch.tensor([f.daystoprevadmit for f in val_features], dtype=torch.float))
@@ -360,7 +379,11 @@ def runReadmission(args):
 
 
            ## Initialize the model before every fold training
-                model = BertForSequenceClassification.from_pretrained(args.bert_model, numLabels, args.features)
+        
+                if args.precomputed_text:
+                    model = BertForSequenceClassificationPrecomputedClinicalText.from_pretrained(args.bert_model, numLabels, args.features)
+                else:
+                    model = BertForSequenceClassificationRuntimeClinicalText.from_pretrained(args.bert_model, numLabels, args.features)
 
                 ## Setting WandBI to log gradients and model parameters
                 wandb.watch(model)
@@ -376,17 +399,24 @@ def runReadmission(args):
 
                 train_loss, min_validation_loss = 100000, 100000
                 min_val_rp80 = 0
+                patience_counter = 0
                 number_training_steps = 1
                 train_loss_history, val_loss_history = [], []
 
-                ##if freeze_bert:
-                for name, param in model.named_parameters():
-                    if name.startswith("bert"): # classifier.weight; classifier.bias
-                        # print(name, param.type())            
-                        param.requires_grad = False
-                        param = param.cpu() # Force the unused parameters to the cpu, to free GPU space for other things
-                        # print(name, param.type())  
-
+                # If precomputed, params can be set to no grad and sent to cpu
+                if args.precomputed_text:
+                    precomputed_state_bert(model)
+                
+                # If using runtime clinical text without finetuning, params can be set to no grad and maintained in gpu
+                elif int(args.bert_finetune_epochs) == 0:
+                    fully_frozen_state_bert(model)
+                            
+                else:
+                    finetune_frozen_bert(model, int(args.bert_num_trainable_layers))
+                    print("\n\n Confirming that params were correctly frozen \n\n")
+                    for name, param in model.named_parameters():
+                        print(name, param)
+   
                 # Prepare optimizer
                 if args.fp16:
                     param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
@@ -402,29 +432,52 @@ def runReadmission(args):
                     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
                     ]
 
-                optimizer = RangerOptimizer(params=optimizer_grouped_parameters,
-                                            lr=args.learning_rate,
-                                            # warmup_pct_default=args.warmup_proportion,
-                                            num_epochs=args.num_train_epochs,
-                                            num_batches_per_epoch=len(train_dataloader))
+                if args.precomputed_text:
+                    optimizer = RangerOptimizer(params=optimizer_grouped_parameters,
+                                                lr=args.learning_rate,
+                                                # warmup_pct_default=args.warmup_proportion,
+                                                num_epochs=args.num_train_epochs,
+                                                num_batches_per_epoch=len(train_dataloader))
+                    
+                else:  # ClinicalBERT uses a different optimizer, thus when finetuning we must use that optimizer
+                    optimizer = BertAdam(optimizer_grouped_parameters,
+                                         lr=args.learning_rate,
+                                         warmup=args.warmup_proportion,
+                                         t_total=num_train_steps)
 
                 model.train()
                 for epo in trange(int(args.num_train_epochs), desc="Epoch"):
+                    if int(args.bert_finetune_epochs) > 0 and epo == int(args.bert_finetune_epochs): #If runtime text, when finetune epoch limit is reached, freeze bert
+                        fully_frozen_state_bert(model)
+                        
                     train_loss = 0
                     nb_tr_steps = 0
                     for step, batch in enumerate(tqdm(train_dataloader, desc="Training Step")):
                         # batch = tuple(t.to(device) for t in batch)
                         #
                         if "clinical_text" in args.features:
-                            precomputed_texts, label_ids, *nonTextFeatures = batch
-                            precomputed_texts = precomputed_texts.to(device)
-                            label_ids = label_ids.to(device)     
-                            if nonTextFeatures:
-                                nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                                loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
-                                                     feature_position_dict=featurePositionDict) 
-                            else:
-                                loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                            if args.precomputed_text:
+                                precomputed_texts, label_ids, *nonTextFeatures = batch
+                                precomputed_texts = precomputed_texts.to(device)
+                                label_ids = label_ids.to(device)     
+                                if nonTextFeatures:
+                                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                                    loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                         feature_position_dict=featurePositionDict) 
+                                else:
+                                    loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                            else: #If runtime text
+                                input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures = batch
+                                input_ids = input_ids.to(device)
+                                input_mask = input_mask.to(device)
+                                segment_ids = segment_ids.to(device)
+                                label_ids = label_ids.to(device)     
+                                if nonTextFeatures:
+                                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                                    loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                         feature_position_dict=featurePositionDict) 
+                                else:
+                                    loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)
                         else:
                             label_ids, *nonTextFeatures = batch
                             label_ids = label_ids.to(device) 
@@ -480,16 +533,29 @@ def runReadmission(args):
                     for step, batch in enumerate(tqdm(val_dataloader, desc="Validation Step")):
                         ## Turning off gradient computation for safety
                         with torch.no_grad():
-                            if "clinical_text" in args.features:
-                                precomputed_texts, label_ids, *nonTextFeatures = batch
-                                precomputed_texts = precomputed_texts.to(device)
-                                label_ids = label_ids.to(device)    
-                                if nonTextFeatures:
-                                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                                    loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
-                                                         feature_position_dict=featurePositionDict) 
-                                else:
-                                    loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                            if "clinical_text" in args.features:                            
+                                if args.precomputed_text:
+                                    precomputed_texts, label_ids, *nonTextFeatures = batch
+                                    precomputed_texts = precomputed_texts.to(device)
+                                    label_ids = label_ids.to(device)     
+                                    if nonTextFeatures:
+                                        nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                                        loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                             feature_position_dict=featurePositionDict) 
+                                    else:
+                                        loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
+                                else: #If runtime text
+                                    input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures = batch
+                                    input_ids = input_ids.to(device)
+                                    input_mask = input_mask.to(device)
+                                    segment_ids = segment_ids.to(device)
+                                    label_ids = label_ids.to(device)     
+                                    if nonTextFeatures:
+                                        nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                             feature_position_dict=featurePositionDict) 
+                                    else:
+                                        loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features) 
                             else:
                                 label_ids, *nonTextFeatures = batch
                                 label_ids = label_ids.to(device) 
@@ -511,22 +577,18 @@ def runReadmission(args):
                     val_accuracy /= nb_val_examples
                     val_loss = val_loss/nb_val_steps
 
-                    if specialTest:
-                        df_val = pd.read_csv("/clinicalBERT/data/extended/discharge/test.csv")
-                    else:
-                        df_val = pd.read_csv(os.path.join(args.data_dir, "fold" + str(val_index[0]) + file_ending))
-                        df_val = df_val.iloc[val_idx, :]
+                    df_val = pd.read_csv(os.path.join(args.data_dir, "fold" + str(val_index[0]) + file_ending))
+                    df_val = df_val.iloc[val_idx, :]
+                    df_val['pred_score'] = logits_history
 
-                    fpr, tpr, df_out = vote_score(df_val, logits_history, args)
+                    fpr, tpr, df_out = vote_score(df_val, args)
                     print(df_out)
                     print(max(logits_history))
-                    # string = 'validation_logits_fold' + str(val_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
-                    # df_out.to_csv(os.path.join(args.output_dir,string))
 
                     val_precision, val_recall, val_f1score, support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
                     print(f'Precision {val_precision}, Recall {val_recall}, F1-Score {val_f1score}') #The first entry is for class 0, the second for class 1
                     # print(f'Precision {val_precision[1]}, Recall {val_recall[1]}, F1-Score {val_f1score[1]}') #The first entry is for class 0, the second for class 1
-                    val_rp80 = vote_pr_curve(df_val, logits_history, args)
+                    val_rp80 = vote_pr_curve(df_val, args)
 
                     wandb.log({"Validation loss": val_loss, "Validation accuracy": val_accuracy, "Val RP80": val_rp80}) 
 
@@ -534,10 +596,13 @@ def runReadmission(args):
                     if args.early_stop:
                         if val_loss < min_validation_loss:
                             min_validation_loss = val_loss
-                        # if val_rp80 > min_val_rp80:
-                        #     min_val_rp80 = val_rp80
                             checkpoint_model_state = deepcopy(model.state_dict()) #must save a deepcopy, otherwise this is a reference to the state dict that keeps getting updated
-
+                        else:
+                            patience_counter += 1
+                            if patience_counter == args.patience:
+                                patience_counter = 0
+                                break
+                                
                     ## Setting model back in training mode:
                     model.train()
 
@@ -566,34 +631,59 @@ def runReadmission(args):
                 true_labels=[]
                 pred_labels=[]
                 logits_history=[]
-
+                
                 if "clinical_text" in args.features:
-                    for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
-                        precomputed_texts = precomputed_texts.to(device)
-                        label_ids = label_ids.to(device)
+                    if args.precomputed_text:
+                        for precomputed_texts, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                            precomputed_texts = precomputed_texts.to(device)
+                            label_ids = label_ids.to(device)
 
-                        with torch.no_grad():
-                            if nonTextFeatures:
-                                nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
-                                tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
-                                                              feature_position_dict=featurePositionDict)
-                                # logits = model(input_ids,segment_ids,input_mask, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
-                            else:
-                                tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
-                                # logits = model(input_ids, segment_ids, input_mask, features_name=args.features,)
+                            with torch.no_grad():
+                                if nonTextFeatures:
+                                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                                    tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                                  feature_position_dict=featurePositionDict)
+                                else:
+                                    tmp_test_loss, logits = model(precomputed_texts, label_ids, features_name=args.features)
 
-                        logits = torch.squeeze(m(logits)).detach().cpu().numpy()
-                        label_ids = label_ids.to('cpu').numpy()
-                        outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
-                        true_labels = true_labels + label_ids.flatten().tolist()
-                        pred_labels = pred_labels + outputs.flatten().tolist()
-                        logits_history = logits_history + logits.flatten().tolist()
+                            logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                            label_ids = label_ids.to('cpu').numpy()
+                            outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+                            true_labels = true_labels + label_ids.flatten().tolist()
+                            pred_labels = pred_labels + outputs.flatten().tolist()
+                            logits_history = logits_history + logits.flatten().tolist()
 
-                        test_accuracy += np.sum(outputs == label_ids)
-                        test_loss += tmp_test_loss.mean().item()
-                        nb_test_steps += 1
-                        nb_test_examples += label_ids.size
+                            test_accuracy += np.sum(outputs == label_ids)
+                            test_loss += tmp_test_loss.mean().item()
+                            nb_test_steps += 1
+                            nb_test_examples += label_ids.size
+                    else:
+                        for input_ids, input_mask, segment_ids, label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
+                            input_ids = input_ids.to(device)
+                            input_mask = input_mask.to(device)
+                            segment_ids = segment_ids.to(device)
+                            label_ids = label_ids.to(device) 
+                            
+                            with torch.no_grad():
+                                if nonTextFeatures:
+                                    nonTextFeatures = [feature.to(device) for feature in nonTextFeatures]
+                                    tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features, features_tensors=nonTextFeatures,
+                                                         feature_position_dict=featurePositionDict) 
+                                else:
+                                    tmp_test_loss, logits = model(input_ids, segment_ids, input_mask, label_ids, features_name=args.features)  
+                                    
+                            logits = torch.squeeze(m(logits)).detach().cpu().numpy()
+                            label_ids = label_ids.to('cpu').numpy()
+                            outputs = np.asarray([1 if i else 0 for i in (logits.flatten()>=0.5)])
+                            true_labels = true_labels + label_ids.flatten().tolist()
+                            pred_labels = pred_labels + outputs.flatten().tolist()
+                            logits_history = logits_history + logits.flatten().tolist()
 
+                            test_accuracy += np.sum(outputs == label_ids)
+                            test_loss += tmp_test_loss.mean().item()
+                            nb_test_steps += 1
+                            nb_test_examples += label_ids.size
+                                        
                 else:
                     for label_ids, *nonTextFeatures in tqdm(test_dataloader, desc="Test Step"):
                         label_ids = label_ids.to(device)
@@ -601,7 +691,6 @@ def runReadmission(args):
 
                         with torch.no_grad():
                             tmp_test_loss, logits = model(labels=label_ids, features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)
-                            # logits = model(features_name=args.features, features_tensors=nonTextFeatures, feature_position_dict=featurePositionDict)                    
 
                         logits = torch.squeeze(m(logits)).detach().cpu().numpy()
                         label_ids = label_ids.to('cpu').numpy()
@@ -623,19 +712,17 @@ def runReadmission(args):
                 # string = 'test_logits_fold' + str(i) + '_' + args.readmission_mode + '_chunks.csv'
                 # df.to_csv(os.path.join(args.output_dir, string))
 
-    ## Special test with original test dataset
-                if specialTest:
-                    df_test = pd.read_csv("/clinicalBERT/data/extended/discharge/test.csv")
-                else:
-                    df_test = pd.read_csv(os.path.join(args.data_dir, "fold" + str(test_index[0]) + file_ending))
-                    df_test = df_test.iloc[test_idx, :]
-                fpr, tpr, df_out = vote_score(df_test, logits_history, args)
+
+                df_test = pd.read_csv(os.path.join(args.data_dir, "fold" + str(test_index[0]) + file_ending))
+                df_test = df_test.iloc[test_idx, :]
+                df_test['pred_score'] = logits_history
+                fpr, tpr, df_out = vote_score(df_test, args)
 
                 # string = 'test_logits_fold' + str(test_index[0]) + '_' + args.readmission_mode + '_readmissions.csv'
                 # df_out.to_csv(os.path.join(args.output_dir,string))
 
                 test_precision, test_recall, test_f1score, test_support_matrix = precision_recall_fscore_support(true_labels, pred_labels)
-                test_rp80 = vote_pr_curve(df_test, logits_history, args)
+                test_rp80 = vote_pr_curve(df_test, args)
 
                 wandb.log({"Test loss": test_loss, "Test accuracy": test_accuracy, "Test RP80": test_rp80})          
 
@@ -717,8 +804,8 @@ def runReadmission(args):
     ##
         if args.do_test:
 
-            csv_filepath = "/clinicalBERT/data/extended/discharge/test.csv"
-            npy_precomputed_filepath = "/clinicalBERT/data/extended/discharge/test_precomputed_text.npy"
+            csv_filepath = "/PatientTM/data/extended/discharge/test.csv"
+            npy_precomputed_filepath = "/PatientTM/data/extended/discharge/test_precomputed_text.npy"
 
             test_dataset = processor.get_examples(csv_filepath, features=args.features, fold=0, numpy_dir=npy_precomputed_filepath)
             test_features = convert_examples_to_features(test_dataset, label_list, args.features, maxLenDict)
@@ -782,7 +869,7 @@ def runReadmission(args):
             test_dataloader  = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
 
 
-            model = BertForSequenceClassification.from_pretrained(args.bert_model, 1, args.features)
+            model = BertForSequenceClassificationPrecomputedClinicalText.from_pretrained(args.bert_model, 1, args.features)
 
             ## Setting WandBI to log gradients and model parameters
             wandb.watch(model)

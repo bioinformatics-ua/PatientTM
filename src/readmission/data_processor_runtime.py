@@ -28,6 +28,7 @@ class InputExample(object):
         self.label = features["label"]
         self.hadm_id = features["hadm_id"]
         self.clinical_text = None
+        self.text_b = text_b
         self.daystoprevadmit = None
         self.duration = None
         self.small_diag_icd9 = None
@@ -50,6 +51,9 @@ class InputFeatures(object):
 
     def __init__(self, features):
         
+        self.input_ids = features["input_ids"]
+        self.input_mask = features["input_mask"]
+        self.segment_ids = features["segment_ids"]
         self.label_id = features["label_id"]
         self.hadm_id = features["hadm_id"]   
         
@@ -93,32 +97,16 @@ class DataProcessor(object):
         file.loc[index, "DAYS_PREV_ADMIT"] = 5000
         lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
                   file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.Label,file.TEXT)
-        return lines
+        return lines    
     
-    def _read_precomputed_npy(cls, input_file):
-        """Reads a comma separated value file."""
-        array = np.load(input_file, allow_pickle=True)
-        return array
-    
-
-class readmissionProcessorNoText(DataProcessor):
+class readmissionProcessorTextRuntime(DataProcessor):
     def get_examples(self, data_dir, features=None, fold=0):
-        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_notext.csv"))
+        datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_text.csv"))
         return self._create_examples(datasetFile, "fold"+str(fold), features)
     
     def get_labels(self):
         """This is only 0 or 1 for readmission prediction. Other predictive goals may need different labels"""
         return ["0", "1"]
-    
-    def _read_csv(cls, input_file):
-        """Reads a comma separated value file."""
-        file=pd.read_csv(input_file)
-        file.DURATION = file.DURATION.abs()
-        index = file[file.DAYS_PREV_ADMIT < 0].index
-        file.loc[index, "DAYS_PREV_ADMIT"] = 5000
-        lines=zip(file.SUBJECT_ID,file.HADM_ID,file.ADMITTIME,file.DAYS_NEXT_ADMIT,file.DAYS_PREV_ADMIT,file.DURATION,file.DIAG_ICD9,\
-                  file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.Label)
-        return lines
     
     def _create_examples(self, linesAllFeatures, set_type, Features=None):
         """Creates examples for the training, dev and test sets.
@@ -133,8 +121,6 @@ class readmissionProcessorNoText(DataProcessor):
         for i, line in enumerate(linesAllFeatures):
             guid = "%s-%s" % (set_type, i)
             features = dict()
-            
-            features["clinical_text"] = None
 
             if "daystoprevadmit" in Features:
                 features["daystoprevadmit"] = line[4]
@@ -178,86 +164,7 @@ class readmissionProcessorNoText(DataProcessor):
 
             features["hadm_id"] = line[1]
             features["label"] = str(int(line[14]))
-
-            examples.append(
-                InputExample(guid=guid, features=features, text_b=None))
-        return examples
-    
-    
-    
-class readmissionProcessorText(DataProcessor):
-    def get_examples(self, data_dir, features=None, fold=0, numpy_dir=None):
-        if numpy_dir is not None:
-            datasetFile = self._read_csv(data_dir)
-            precomputedEmbeddingsFile = self._read_precomputed_npy(numpy_dir)
-        else:
-            datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_text.csv"))
-            precomputedEmbeddingsFile = self._read_precomputed_npy(os.path.join(data_dir, "fold" + str(fold) + "_text_precomputed.npy"))
-        return self._create_examples(datasetFile, precomputedEmbeddingsFile, "fold"+str(fold), features)
-    
-    def get_labels(self):
-        """This is only 0 or 1 for readmission prediction. Other predictive goals may need different labels"""
-        return ["0", "1"]
-    
-    def _create_examples(self, linesAllFeatures, linesPrecomputed, set_type, Features=None):
-        """Creates examples for the training, dev and test sets.
-        @param Features is a list with additional variables to be used"""
-        examples = []
-        
-        min_duration, max_duration, min_daysprev, max_daysprev = 0, 300, 0, 5000
-        duration_scaler, daysprev_scaler = MinMaxScaler(), MinMaxScaler()
-        duration_scaler.fit(np.array([min_duration, max_duration]).reshape(-1, 1))
-        daysprev_scaler.fit(np.array([min_daysprev, max_daysprev]).reshape(-1, 1))
-        
-        for i, (line, linePrecomputed) in enumerate(zip(linesAllFeatures, linesPrecomputed)):
-            guid = "%s-%s" % (set_type, i)
-            features = dict()
-            assert line[1] == linePrecomputed["HADM_ID"], "HADM_IDS do not match between the general file and the precomputed file!"
-            
-            features["clinical_text"] = linePrecomputed["clinicalbert_embedding"].flatten()
-
-            if "daystoprevadmit" in Features:
-                features["daystoprevadmit"] = line[4]
-                if pd.isna(features["daystoprevadmit"]): features["daystoprevadmit"] = [0]
-                else: features["daystoprevadmit"] = [float(daysprev_scaler.transform(np.array([float(line[4])]).reshape(1, -1)))]
-            else: features["daystoprevadmit"] = None
-
-            if "duration"  in Features:
-                features["duration"] = [float(duration_scaler.transform(np.array([float(line[5])]).reshape(1, -1)))]
-            else: features["duration"] = None
-
-            if "diag_ccs"  in Features:
-                features["diag_ccs"] = line[7]
-                if pd.isna(features["diag_ccs"]) or features["diag_ccs"] == "[]": features["diag_ccs"] = [0]
-                else: features["diag_ccs"] = [x for x in processString(line[7],charsToRemove = "[]\' ").split(',')]
-            else: features["diag_ccs"] = None
-
-            if "proc_ccs"  in Features:
-                features["proc_ccs"] = line[9]
-                if pd.isna(features["proc_ccs"]) or features["proc_ccs"] == "[]": features["proc_ccs"] = [0]
-                else: features["proc_ccs"] = [x for x in processString(line[9],charsToRemove = "[]\' ").split(',')]
-            else: features["proc_ccs"] = None
-
-            if "small_diag_icd9" in Features:
-                features["small_diag_icd9"] = line[11]
-                if pd.isna(features["small_diag_icd9"]) or features["small_diag_icd9"] == "[]": features["small_diag_icd9"] = [0]
-                else: features["small_diag_icd9"] = [x for x in processString(line[11],charsToRemove = "[]\' ").split(',')]
-            else: features["small_diag_icd9"] = None
-
-            if "small_proc_icd9" in Features:
-                features["small_proc_icd9"] = line[12]
-                if pd.isna(features["small_proc_icd9"]) or features["small_proc_icd9"] == "[]": features["small_proc_icd9"] = [0]
-                else: features["small_proc_icd9"] = [x for x in processString(line[12],charsToRemove = "[]\' ").split(',')]
-            else: features["small_proc_icd9"] = None
-
-            if "cui" in Features:
-                features["cui"] = line[13]                    
-                if pd.isna(features["cui"]) or features["cui"] == "[]": features["cui"] = [0]
-                else: features["cui"] = [x for x in processString(line[13],charsToRemove = "[]\' ").split(',')]
-            else: features["cui"] = None
-
-            features["hadm_id"] = line[1]
-            features["label"] = str(int(line[14]))
+            features["clinical_text"] = line[15]
 
             examples.append(
                 InputExample(guid=guid, features=features, text_b=None))
@@ -273,7 +180,24 @@ def convertToIds(feature, idsMappingDict):
     return [idsMappingDict[str(entry)] for entry in feature]
 
 
-def convert_examples_to_features(examples, label_list, Features, maxLenDict):
+def _truncate_seq_pair(tokens_a, tokens_b, max_length):
+    """Truncates a sequence pair in place to the maximum length."""
+
+    # This is a simple heuristic which will always truncate the longer sequence
+    # one token at a time. This makes more sense than truncating an equal percent
+    # of tokens from each, since if one sequence is very short then each token
+    # that's truncated likely contains more information than a longer sequence.
+    while True:
+        total_length = len(tokens_a) + len(tokens_b)
+        if total_length <= max_length:
+            break
+        if len(tokens_a) > len(tokens_b):
+            tokens_a.pop()
+        else:
+            tokens_b.pop()
+            
+
+def convert_examples_to_features_runtime(examples, label_list, max_seq_length, tokenizer, Features, maxLenDict):
     """Loads a data file into a list of `InputBatch`s."""
 
     if Features is not None:
@@ -297,13 +221,73 @@ def convert_examples_to_features(examples, label_list, Features, maxLenDict):
     features = []
     for (ex_index, example) in enumerate(examples):
         feature = dict()
+  
+        tokens_a = tokenizer.tokenize(example.clinical_text)
+        tokens_b = None
         
-        if "clinical_text" in Features:
-            feature["clinical_text"] = example.clinical_text
+        if example.text_b:
+            tokens_b = tokenizer.tokenize(example.text_b)
+
+        if tokens_b:
+            # Modifies `tokens_a` and `tokens_b` in place so that the total
+            # length is less than the specified length.
+            # Account for [CLS], [SEP], [SEP] with "- 3"
+            _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
+        else:
+            # Account for [CLS] and [SEP] with "- 2"
+            if len(tokens_a) > max_seq_length - 2:
+                tokens_a = tokens_a[0:(max_seq_length - 2)]
+
+        tokens = []
+        segment_ids = []
+        tokens.append("[CLS]")
+        segment_ids.append(0)
+        for token in tokens_a:
+            tokens.append(token)
+            segment_ids.append(0)
+        tokens.append("[SEP]")
+        segment_ids.append(0)
+
+        if tokens_b:
+            for token in tokens_b:
+                tokens.append(token)
+                segment_ids.append(1)
+            tokens.append("[SEP]")
+            segment_ids.append(1)
+
+        input_ids = tokenizer.convert_tokens_to_ids(tokens)
+
+        # The mask has 1 for real tokens and 0 for padding tokens. Only real
+        # tokens are attended to.
+        input_mask = [1] * len(input_ids)
+
+        # Zero-pad up to the sequence length.
+        while len(input_ids) < max_seq_length:
+            input_ids.append(0)
+            input_mask.append(0)
+            segment_ids.append(0)
+
+        assert len(input_ids)   == max_seq_length
+        assert len(input_mask)  == max_seq_length
+        assert len(segment_ids) == max_seq_length            
          
         label_id = label_map[example.label]
-        feature["label_id"]=label_id
-        feature["hadm_id"]=example.hadm_id
+        feature["label_id"]    = label_id
+        feature["hadm_id"]     = example.hadm_id
+        feature["input_ids"]   = input_ids
+        feature["input_mask"]  = input_mask
+        feature["segment_ids"] = segment_ids
+        
+        if ex_index < 2:
+            logger.info("*** Example ***")
+            logger.info("guid: %s" % (example.guid))
+            logger.info("tokens: %s" % " ".join(
+                    [str(x) for x in tokens]))
+            logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+            logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
+            logger.info(
+                    "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+            logger.info("label: %s (id = %d)" % (example.label, label_id))
 
         if "daystoprevadmit" in Features: feature["daystoprevadmit"] = example.daystoprevadmit
         if "duration"  in Features: feature["duration"] = example.duration
@@ -330,3 +314,4 @@ def convert_examples_to_features(examples, label_list, Features, maxLenDict):
 
         features.append(InputFeatures(feature))
     return features
+

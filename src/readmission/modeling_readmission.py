@@ -86,9 +86,7 @@ class BertConfig(object):
                  ccs_vocab_size  = None,
                  cui_vocab_size  = None,
                  embedding_hidden_size = None,
-                 admittime_hidden_size = None,
                  duration_hidden_size  = None,
-                 daystonextadmit_hidden_size = None,
                  daystoprevadmit_hidden_size = None):
         """Constructs BertConfig.
 
@@ -136,9 +134,7 @@ class BertConfig(object):
             self.ccs_vocab_size  = ccs_vocab_size
             self.cui_vocab_size  = cui_vocab_size
             self.embedding_hidden_size = embedding_hidden_size
-            self.admittime_hidden_size = admittime_hidden_size
             self.duration_hidden_size  = duration_hidden_size
-            self.daystonextadmit_hidden_size = daystonextadmit_hidden_size
             self.daystoprevadmit_hidden_size = daystoprevadmit_hidden_size
             
         else:
@@ -1013,9 +1009,6 @@ class BertForSequenceClassificationOriginal(PreTrainedBertModel):
         if labels is not None:
             loss_fct = BCELoss()
             m = nn.Sigmoid()
-            #n = torch.squeeze(m(logits))
-            #loss = loss_fct(n, labels.float())
-            #loss = loss_fct(n.reshape(-1,1), labels.float().reshape(-1,1))
             n = torch.squeeze(m(logits), dim=-1)
             loss = loss_fct(n, labels.float())
             return pooled_output2, loss, logits
@@ -1023,8 +1016,7 @@ class BertForSequenceClassificationOriginal(PreTrainedBertModel):
             return pooled_output2, logits
 
 
-
-class BertForSequenceClassification(PreTrainedBertModel):
+class BertForSequenceClassificationRuntimeClinicalText(PreTrainedBertModel):
     """BERT model for classification.
     This module is composed of the BERT model with a linear layer on top of
     the pooled output.
@@ -1070,21 +1062,16 @@ class BertForSequenceClassification(PreTrainedBertModel):
     ```
     """
     def __init__(self, config, num_labels, features):
-        super(BertForSequenceClassification, self).__init__(config)
+        super(BertForSequenceClassificationRuntimeClinicalText, self).__init__(config)
         self.bert = BertModel(config)
         self.classifier = nn.Linear(config.hidden_size, num_labels)  # This layer will be unused to avoid using a pre-trained layer
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
         
         classifier_size = 0
         
         if features is not None:
             if "clinical_text" in features:
                 classifier_size += config.hidden_size
-            if "admittime" in features:
-                classifier_size += config.admittime_hidden_size
-                self.admittime_layer = TimeLayer(config.admittime_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
-            if "daystonextadmit" in features:
-                classifier_size += config.daystonextadmit_hidden_size
-                self.daysnextadmit_layer = TimeLayer(config.daystonextadmit_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
             if "daystoprevadmit" in features:
                 classifier_size += config.daystoprevadmit_hidden_size
                 self.daysprevadmit_layer = TimeLayer(config.daystoprevadmit_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
@@ -1121,26 +1108,17 @@ class BertForSequenceClassification(PreTrainedBertModel):
                                                            config.hidden_dropout_prob, pretrained_array=np.load("../data/extended/preprocessing/embeddings/cui_embeddings.npy"))
                 self.cui_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
                                                 max_len=config.cui_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
-
-            # ## This is a shared layer, not a fully connected layer, hence all "features" must output tensors with the same size to go through this layer
-            # self.shared_layer = SharedLayer(config)
           
         self.final_classifier = nn.Linear(classifier_size, num_labels)   
         self.apply(self.init_bert_weights)
 
-
-    def forward(self, precomputed_text=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
+    def forward(self, input_ids=None, token_type_ids=None, attention_mask=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
         layer_outputs = []
         if features_name is not None:
             if "clinical_text" in features_name:
-                clinicaltext_output = precomputed_text
-                layer_outputs.append(clinicaltext_output)
-            if "admittime" in features_name:
-                admittime_output = self.admittime_layer(features_tensors[feature_position_dict["admittime"]])
-                layer_outputs.append(admittime_output)
-            if "daystonextadmit" in features_name:
-                daysnextadmit_output = self.daysnextadmit_layer(features_tensors[feature_position_dict["daystonextadmit"]])
-                layer_outputs.append(daysnextadmit_output)
+                _, bert_pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+                pooled_output2 = self.dropout(bert_pooled_output)
+                layer_outputs.append(pooled_output2)
             if "daystoprevadmit" in features_name:
                 daysprevadmit_output = self.daysprevadmit_layer(features_tensors[feature_position_dict["daystoprevadmit"]])
                 layer_outputs.append(daysprevadmit_output)
@@ -1168,22 +1146,153 @@ class BertForSequenceClassification(PreTrainedBertModel):
                 cui_output = self.cui_layer(cui_output)
                 layer_outputs.append(cui_output)
        
-        #Processo final de combinar? Para já concatenação, é linear.... depois bilstm-crf?
         output = torch.cat(([i for i in layer_outputs]),dim=1)
-
         logits = self.final_classifier(output)
         
         if labels is not None:
-            loss_fct = BCELoss()
-            # positive_class_weight = 0.6
-            # negative_class_weight = 0.4
-            # weights = [positive_class_weight if label == 1.0 else negative_class_weight for label in labels]
-            # weights = torch.tensor(weights, dtype=torch.float)
-            # loss_fct = BCELoss(weight=weights)
-            # loss_fct = BCELoss_class_weighted(weights=[0.5,1])
-            
+            loss_fct = BCELoss()            
             m = nn.Sigmoid()
-# NOTE: for multi class the sigmoid activation must be changed to softmax and the loss must be changed from binary cross entropy to cross entropy
+            n = torch.squeeze(m(logits), dim=-1)
+            loss = loss_fct(n, labels.float())
+            return loss, logits
+        else:
+            return logits
+
+
+class BertForSequenceClassificationPrecomputedClinicalText(PreTrainedBertModel):
+    """BERT model for classification.
+    This module is composed of the BERT model with a linear layer on top of
+    the pooled output.
+
+    Params:
+        `config`: a BertConfig class instance with the configuration to build a new model.
+        `num_labels`: the number of classes for the classifier. Default = 2.
+
+    Inputs:
+        `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length]
+            with the word token indices in the vocabulary(see the tokens preprocessing logic in the scripts
+            `extract_features.py`, `run_classifier.py` and `run_squad.py`)
+        `token_type_ids`: an optional torch.LongTensor of shape [batch_size, sequence_length] with the token
+            types indices selected in [0, 1]. Type 0 corresponds to a `sentence A` and type 1 corresponds to
+            a `sentence B` token (see BERT paper for more details).
+        `attention_mask`: an optional torch.LongTensor of shape [batch_size, sequence_length] with indices
+            selected in [0, 1]. It's a mask to be used if the input sequence length is smaller than the max
+            input sequence length in the current batch. It's the mask that we typically use for attention when
+            a batch has varying length sentences.
+        `labels`: labels for the classification output: torch.LongTensor of shape [batch_size]
+            with indices selected in [0, ..., num_labels].
+
+    Outputs:
+        if `labels` is not `None`:
+            Outputs the CrossEntropy classification loss of the output with the labels.
+        if `labels` is `None`:
+            Outputs the classification logits.
+
+    Example usage:
+    ```python
+    # Already been converted into WordPiece token ids
+    input_ids = torch.LongTensor([[31, 51, 99], [15, 5, 0]])
+    input_mask = torch.LongTensor([[1, 1, 1], [1, 1, 0]])
+    token_type_ids = torch.LongTensor([[0, 0, 1], [0, 2, 0]])
+
+    config = BertConfig(vocab_size=32000, hidden_size=512,
+        num_hidden_layers=8, num_attention_heads=6, intermediate_size=1024)
+
+    num_labels = 2
+
+    model = BertForSequenceClassification(config, num_labels)
+    logits = model(input_ids, token_type_ids, input_mask)
+    ```
+    """
+    def __init__(self, config, num_labels, features):
+        super(BertForSequenceClassificationPrecomputedClinicalText, self).__init__(config)
+        self.bert = BertModel(config)
+        self.classifier = nn.Linear(config.hidden_size, num_labels)  # This layer will be unused to avoid using a pre-trained layer
+        classifier_size = 0
+        
+        if features is not None:
+            if "clinical_text" in features:
+                classifier_size += config.hidden_size
+            if "daystoprevadmit" in features:
+                classifier_size += config.daystoprevadmit_hidden_size
+                self.daysprevadmit_layer = TimeLayer(config.daystoprevadmit_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
+            if "duration" in features:
+                classifier_size += config.duration_hidden_size
+                self.duration_layer = TimeLayer(config.duration_hidden_size, config.hidden_dropout_prob, config.extra_feat_act)
+                
+            if "small_diag_icd9" in features or "small_proc_icd9" in features:
+                self.icd9_embeddings_layer = EmbeddingLayer(config.small_icd9_vocab_size, config.embedding_hidden_size,
+                                                            config.hidden_dropout_prob, pretrained_array=np.load("../data/extended/preprocessing/embeddings/small_icd9_embeddings.npy"))
+                if "small_diag_icd9" in features:
+                    classifier_size += config.hidden_size
+                    self.diag_icd9_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)     
+                if "small_proc_icd9" in features:
+                    classifier_size += config.hidden_size
+                    self.proc_icd9_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+            
+            if "diag_ccs" in features or "proc_ccs" in features:
+                self.ccs_embeddings_layer = EmbeddingLayer(config.ccs_vocab_size, config.embedding_hidden_size,
+                                                           config.hidden_dropout_prob, pretrained_array=np.load("../data/extended/preprocessing/embeddings/ccs_embeddings.npy"))
+                if "diag_ccs" in features:
+                    classifier_size += config.hidden_size
+                    self.diag_ccs_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+                if "proc_ccs" in features:
+                    classifier_size += config.hidden_size
+                    self.proc_ccs_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.small_icd9_ccs_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+            if "cui" in features:
+                classifier_size += config.hidden_size     
+                self.cui_embeddings_layer = EmbeddingLayer(config.cui_vocab_size, config.embedding_hidden_size,
+                                                           config.hidden_dropout_prob, pretrained_array=np.load("../data/extended/preprocessing/embeddings/cui_embeddings.npy"))
+                self.cui_layer = CodesLayer(input_hidden_size=config.embedding_hidden_size, output_hidden_size=config.hidden_size,\
+                                                max_len=config.cui_maxlen, dropout_prob=config.hidden_dropout_prob, activation=config.extra_feat_act)
+          
+        self.final_classifier = nn.Linear(classifier_size, num_labels)   
+        self.apply(self.init_bert_weights)
+
+
+    def forward(self, precomputed_text=None, labels=None, features_name=None, features_tensors=None, feature_position_dict=None):
+        layer_outputs = []
+        if features_name is not None:
+            if "clinical_text" in features_name:
+                clinicaltext_output = precomputed_text
+                layer_outputs.append(clinicaltext_output)
+            if "daystoprevadmit" in features_name:
+                daysprevadmit_output = self.daysprevadmit_layer(features_tensors[feature_position_dict["daystoprevadmit"]])
+                layer_outputs.append(daysprevadmit_output)
+            if "duration" in features_name:
+                duration_output = self.duration_layer(features_tensors[feature_position_dict["duration"]])
+                layer_outputs.append(duration_output)
+            if "small_diag_icd9" in features_name:
+                diag_icd9_output = self.icd9_embeddings_layer(features_tensors[feature_position_dict["small_diag_icd9"]])
+                diag_icd9_output = self.diag_icd9_layer(diag_icd9_output)
+                layer_outputs.append(diag_icd9_output)
+            if "small_proc_icd9" in features_name:
+                proc_icd9_output = self.icd9_embeddings_layer(features_tensors[feature_position_dict["small_proc_icd9"]])
+                proc_icd9_output = self.proc_icd9_layer(proc_icd9_output)
+                layer_outputs.append(proc_icd9_output)
+            if "diag_ccs" in features_name:
+                diag_ccs_output = self.ccs_embeddings_layer(features_tensors[feature_position_dict["diag_ccs"]])
+                diag_ccs_output = self.diag_ccs_layer(diag_ccs_output)
+                layer_outputs.append(diag_ccs_output)
+            if "proc_ccs" in features_name:
+                proc_ccs_output = self.ccs_embeddings_layer(features_tensors[feature_position_dict["proc_ccs"]])
+                proc_ccs_output = self.proc_ccs_layer(proc_ccs_output)
+                layer_outputs.append(proc_ccs_output)
+            if "cui" in features_name:
+                cui_output = self.cui_embeddings_layer(features_tensors[feature_position_dict["cui"]])
+                cui_output = self.cui_layer(cui_output)
+                layer_outputs.append(cui_output)
+       
+        output = torch.cat(([i for i in layer_outputs]),dim=1)
+        logits = self.final_classifier(output)
+        
+        if labels is not None:
+            loss_fct = BCELoss()            
+            m = nn.Sigmoid()
             n = torch.squeeze(m(logits), dim=-1)
             loss = loss_fct(n, labels.float())
             return loss, logits
@@ -1191,33 +1300,14 @@ class BertForSequenceClassification(PreTrainedBertModel):
             return logits
 
         
+        
 def BCELoss_class_weighted(weights):
     def loss(logits, labels):
         input = torch.clamp(logits,min=1e-7,max=1-1e-7)
         bce = - weights[1] * labels * torch.log(logits) - (1 - labels) * weights[0] * torch.log(1 - logits)
         return torch.mean(bce)
     return loss
-        
-        
-        
-# ## We already use a "shared layer" as all embeddings are from SapBERT, however this concept could be used when adding other features such as genomics or image related data
-# class SharedLayer(nn.Module):
-#     def __init__(self, config):
-#         super(SharedLayer, self).__init__()
-#         self.dense =  nn.Linear(config.shared_hidden_size, config.shared_hidden_size) # Decide layer sizes after!!!
-#         self.layernorm = LayerNorm(config.shared_hidden_size)                         # Check layer sizes after!!!
-#         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-#         self.activation = ACT2FN[config.extra_feat_act]
-        
-#     def forward(self, hidden_states):
-#         shared_output = self.dense(hidden_states)
-#         shared_output = self.activation(shared_output)
-#         shared_output = self.layernorm(shared_output)
-#         shared_output = self.dropout(shared_output)
-#         return shared_output
-    
-        
-        
+               
         
 class TimeLayer(nn.Module):
     def __init__(self, hidden_size, dropout_prob, activation):
@@ -1235,8 +1325,6 @@ class TimeLayer(nn.Module):
         return layer_output
         
         
-        
-    
 class EmbeddingLayer(nn.Module):
     def __init__(self, vocab_size, hidden_size, dropout_prob, pretrained_array=None):
         super(EmbeddingLayer, self).__init__()
@@ -1263,10 +1351,6 @@ class  CodesLayer(nn.Module):
         self.layernorm = LayerNorm(output_hidden_size)
         self.dropout = nn.Dropout(dropout_prob)
         self.activation2 = ACT2FN[activation]
-        
-        # ##We could implement instead something like BertPooler -> we do not have CLS tokens here, and CLS tokens would "require" a full SapBERT model
-        # self.dense = nn.Linear(input_hidden_size, input_hidden_size) #Same in and out size as in BertPooler
-        # self.activation = nn.Tanh()
 
     def forward(self, input_data):
         input_data = input_data.view(input_data.size(0),-1) #Flatten so they can go through the layer
@@ -1274,11 +1358,6 @@ class  CodesLayer(nn.Module):
         layer_output = self.activation2(layer_output)
         layer_output = self.layernorm(layer_output)
         layer_output = self.dropout(layer_output)
-        
-        # ##Or use instead BertPooler variant -> Not possible, we do not have a model for that
-        # first_token_tensor = hidden_states[:, 0]
-        # layer_output = self.dense(first_token_tensor)
-        # layer_output = self.activation(layer_output)
-        
+
         return layer_output
 

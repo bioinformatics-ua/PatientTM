@@ -31,8 +31,7 @@ def compute_accuracy_noclinicaltext(true_labels, pred_labels, hadm_ids):
     print(f'Correct predictions {correct_predictions} vs Incorrect predictions {incorrect_predictions}')
     return accuracy
 
-def vote_score(df, score, args):
-    df['pred_score'] = score
+def vote_score(df, args):
     df_sort = df.sort_values(by=['HADM_ID'])
     #score 
     scaling_factor = 2
@@ -84,8 +83,7 @@ def pr_curve_plot(y, y_score, args):
     plt.savefig(os.path.join(args.output_dir, string))
 
 
-def vote_pr_curve(df, score, args):
-    df['pred_score'] = score
+def vote_pr_curve(df, args):
     df_sort = df.sort_values(by=['HADM_ID'])
     #score
     scaling_factor = 2
