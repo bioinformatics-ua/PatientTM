@@ -14,8 +14,6 @@
   "ccs_vocab_size": 485,
   "cui_vocab_size": 19485,
   "embedding_hidden_size": 768,
-  "admittime_hidden_size": 50,
-  "daystonextadmit_hidden_size": 50,
   "daystoprevadmit_hidden_size": 50,
   "duration_hidden_size": 50,
   "small_icd9_ccs_maxlen": 39,
