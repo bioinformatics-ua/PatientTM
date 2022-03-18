@@ -99,6 +99,7 @@ class DataProcessor(object):
                   file.DIAG_CCS,file.PROC_ICD9,file.PROC_CCS,file.NDC,file.SMALL_DIAG_ICD9,file.SMALL_PROC_ICD9,file.CUI,file.Label,file.TEXT)
         return lines    
     
+    
 class readmissionProcessorTextRuntime(DataProcessor):
     def get_examples(self, data_dir, features=None, fold=0):
         datasetFile = self._read_csv(os.path.join(data_dir, "fold" + str(fold) + "_text.csv"))
@@ -175,6 +176,8 @@ def processString(string, charsToRemove):
     for char in charsToRemove: string = string.replace(char, "")
     return string
 
+def convertStringToList(string):
+    return [int(x) for x in processString(string, charsToRemove = "[] ").split(',')]
 
 def convertToIds(feature, idsMappingDict):
     return [idsMappingDict[str(entry)] for entry in feature]
@@ -196,8 +199,10 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
         else:
             tokens_b.pop()
             
+            
 
-def convert_examples_to_features_runtime(examples, label_list, max_seq_length, tokenizer, Features, maxLenDict):
+            
+def convert_examples_to_features_runtime_first_time(examples, label_list, max_seq_length, tokenizer, Features, maxLenDict, data_dir):
     """Loads a data file into a list of `InputBatch`s."""
 
     if Features is not None:
@@ -219,6 +224,7 @@ def convert_examples_to_features_runtime(examples, label_list, max_seq_length, t
         label_map[label] = i
 
     features = []
+           
     for (ex_index, example) in enumerate(examples):
         feature = dict()
   
@@ -289,6 +295,82 @@ def convert_examples_to_features_runtime(examples, label_list, max_seq_length, t
                     "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
             logger.info("label: %s (id = %d)" % (example.label, label_id))
 
+        if "daystoprevadmit" in Features: feature["daystoprevadmit"] = example.daystoprevadmit
+        if "duration"  in Features: feature["duration"] = example.duration
+        if "diag_ccs"  in Features:
+            feature["diag_ccs"] = convertToIds(example.diag_ccs, ccsMappingDict)
+            while len(feature["diag_ccs"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["diag_ccs"].append(0)
+        if "proc_ccs"  in Features:
+            feature["proc_ccs"] = convertToIds(example.proc_ccs, ccsMappingDict)
+            while len(feature["proc_ccs"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["proc_ccs"].append(0)
+        if "small_diag_icd9" in Features:
+            feature["small_diag_icd9"] = convertToIds(example.small_diag_icd9, smallIcd9MappingDict)
+            while len(feature["small_diag_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["small_diag_icd9"].append(0)
+        if "small_proc_icd9" in Features:
+            feature["small_proc_icd9"] = convertToIds(example.small_proc_icd9, smallIcd9MappingDict)
+            while len(feature["small_proc_icd9"]) < maxLenDict["small_icd9_ccs_maxlen"]:
+                feature["small_proc_icd9"].append(0)
+        if "cui" in Features:
+            feature["cui"] = convertToIds(example.cui, cuiMappingDict)
+            while len(feature["cui"]) < maxLenDict["cui_maxlen"]:
+                feature["cui"].append(0)
+
+        features.append(InputFeatures(feature))
+        
+    with open(data_dir, "w") as file:
+        filewriter = csv.writer(file)
+        filewriter.writerow(["hadm_id","input_ids","input_mask","segment_ids"])
+        for feature in features:
+            filewriter.writerow([feature.hadm_id, feature.input_ids, feature.input_mask, feature.segment_ids])
+            
+    return features
+
+
+
+
+def convert_examples_to_features_runtime(examples, label_list, Features, maxLenDict, data_dir):
+    """Loads a data file into a list of `InputBatch`s."""
+
+    if Features is not None:
+        """Load the mapping dictionaries for additional features, to be used later to convert to ids"""
+        if "small_diag_icd9" in Features or "small_proc_icd9" in Features:
+            with open("../data/extended/preprocessing/idxFiles/smallIcd9ToIdx.json","r") as file:
+                smallIcd9MappingDict = json.load(file)
+
+        if "diag_ccs" in Features or "proc_ccs" in Features:
+            with open("../data/extended/preprocessing/idxFiles/CCSToIdx.json","r") as file:
+                ccsMappingDict = json.load(file)
+
+        if "cui" in Features:
+            with open("../data/extended/preprocessing/idxFiles/cui_NDCToIdx.json","r") as file:
+                cuiMappingDict = json.load(file)
+
+    label_map = {}
+    for (i, label) in enumerate(label_list):
+        label_map[label] = i
+
+    features = []
+    
+    file = pd.read_csv(data_dir)
+    text_feature_examples=zip(file.hadm_id, file.input_ids, file.input_mask, file.segment_ids)
+       
+    for ex_index, (example, text_feature_example) in enumerate(zip(examples, text_feature_examples)):
+        text_hadm_id, text_input_ids, text_input_mask, text_segment_ids = text_feature_example
+        
+        assert example.hadm_id == text_hadm_id
+        
+        feature = dict()        
+         
+        label_id = label_map[example.label]
+        feature["label_id"]    = label_id
+        feature["hadm_id"]     = example.hadm_id
+        feature["input_ids"]   = convertStringToList(text_input_ids)
+        feature["input_mask"]  = convertStringToList(text_input_mask)
+        feature["segment_ids"] = convertStringToList(text_segment_ids)
+ 
         if "daystoprevadmit" in Features: feature["daystoprevadmit"] = example.daystoprevadmit
         if "duration"  in Features: feature["duration"] = example.duration
         if "diag_ccs"  in Features:

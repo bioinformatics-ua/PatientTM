@@ -1288,7 +1288,8 @@ class BertForSequenceClassificationPrecomputedClinicalText(PreTrainedBertModel):
                 layer_outputs.append(cui_output)
        
         output = torch.cat(([i for i in layer_outputs]),dim=1)
-        logits = self.final_classifier(output)
+        # logits = self.final_classifier(output)
+        logits = self.classifier(output)
         
         if labels is not None:
             loss_fct = BCELoss()            

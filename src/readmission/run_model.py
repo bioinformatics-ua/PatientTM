@@ -54,7 +54,7 @@ from ranger21 import Ranger21 as RangerOptimizer
 
 from readmission.modeling_readmission import BertForSequenceClassificationOriginal, BertForSequenceClassificationRuntimeClinicalText, BertForSequenceClassificationPrecomputedClinicalText
 from readmission.data_processor import convert_examples_to_features, readmissionProcessorText, readmissionProcessorNoText
-from readmission.data_processor_runtime import convert_examples_to_features_runtime, readmissionProcessorTextRuntime
+from readmission.data_processor_runtime import convert_examples_to_features_runtime, convert_examples_to_features_runtime_first_time, readmissionProcessorTextRuntime
 from readmission.evaluation import vote_score, vote_pr_curve
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
@@ -214,14 +214,19 @@ def runReadmission(args):
         label_list = processor.get_labels()
 
         if args.do_train:
-
-            cvFolds = 10
+            
+            cvFolds = 10        
             folds = [i for i in range(cvFolds)]
             folds_dataset = []
             for i in folds:
                 dataset = processor.get_examples(args.data_dir, features=args.features, fold=i)
-                if "clinical_text" in args.features and not args.precomputed_text:             
-                    folds_dataset.append(convert_examples_to_features_runtime(dataset, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict))               
+                if "clinical_text" in args.features and not args.precomputed_text:
+                    preprocessedTextFeatures = os.path.join(args.data_dir, "fold" + str(i) + "_textfeatures.csv")
+                    if os.path.exists(preprocessedTextFeatures):
+                        folds_dataset.append(convert_examples_to_features_runtime(dataset, label_list, args.features, maxLenDict, preprocessedTextFeatures))
+                    else:
+                        folds_dataset.append(convert_examples_to_features_runtime_first_time(dataset, label_list, args.max_seq_length, tokenizer, args.features, maxLenDict,
+                                                                                             preprocessedTextFeatures))               
                 else:
                     folds_dataset.append(convert_examples_to_features(dataset, label_list, args.features, maxLenDict))
                     
@@ -410,12 +415,13 @@ def runReadmission(args):
                 # If using runtime clinical text without finetuning, params can be set to no grad and maintained in gpu
                 elif int(args.bert_finetune_epochs) == 0:
                     fully_frozen_state_bert(model)
-                            
+                
+                # If using runtime clinical text and finetuning, params from non-finetunable layers are set to no grad and maintained in gpu
                 else:
                     finetune_frozen_bert(model, int(args.bert_num_trainable_layers))
-                    print("\n\n Confirming that params were correctly frozen \n\n")
-                    for name, param in model.named_parameters():
-                        print(name, param)
+                    # print("\n\n Confirming that params were correctly frozen \n\n")
+                    # for name, param in model.named_parameters():
+                    #     print(name, param)
    
                 # Prepare optimizer
                 if args.fp16:
