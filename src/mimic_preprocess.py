@@ -225,6 +225,11 @@ df_adm.ADMITTIME = pd.to_datetime(df_adm.ADMITTIME, format = '%Y-%m-%d %H:%M:%S'
 df_adm.DISCHTIME = pd.to_datetime(df_adm.DISCHTIME, format = '%Y-%m-%d %H:%M:%S', errors = 'coerce')
 df_adm.DEATHTIME = pd.to_datetime(df_adm.DEATHTIME, format = '%Y-%m-%d %H:%M:%S', errors = 'coerce')
 
+## To count numbers of admissions in the dataset
+visit_distribution = visit_distribution.groupby(['SUBJECT_ID'])['HADM_ID'].agg(['nunique']).reset_index(drop=False)
+visit_distribution = visit_distribution.groupby(['nunique'])['SUBJECT_ID'].agg('nunique')
+
+
 df_adm = df_adm.sort_values(['SUBJECT_ID','ADMITTIME'])
 df_adm = df_adm.reset_index(drop = True)
 df_adm['NEXT_ADMITTIME'] = df_adm.groupby('SUBJECT_ID').ADMITTIME.shift(-1)
